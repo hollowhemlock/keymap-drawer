@@ -1,6 +1,6 @@
 # Stacked Layer Example
 
-Example files for the `stack-layers` command. See [STACKED.md](../../STACKED.md) for full documentation.
+Example files for the `transform` stacked-layer recipe. See [TRANSFORM.md](../../TRANSFORM.md) for full documentation.
 
 ## Files
 
@@ -11,16 +11,34 @@ Example files for the `stack-layers` command. See [STACKED.md](../../STACKED.md)
 
 ```bash
 # Stack and draw
-keymap -c config.yaml stack-layers --center colemak_dh --tl fun --tr sys --bl num --br nav \
-  ferris_sweep.yaml | keymap -c config.yaml draw -k "ferris/sweep" - -o stacked.svg
+keymap -c config.yaml transform ferris_sweep.yaml \
+  --include-layers colemak_dh fun sys num nav \
+  --move-layer colemak_dh stacked \
+  --move-layer fun stacked:tl \
+  --move-layer sys stacked:tr \
+  --move-layer num stacked:bl \
+  --move-layer nav stacked:br \
+  | keymap -c config.yaml draw -k "ferris/sweep" - -o stacked.svg
 
 # With combos stacked
-keymap -c config.yaml stack-layers --center colemak_dh --tl fun --tr sys --bl num --br nav \
-  ferris_sweep.yaml --include-combos colemak_dh nav num -o stacked.yaml
+keymap -c config.yaml transform ferris_sweep.yaml \
+  --include-layers colemak_dh fun sys num nav \
+  --move-layer colemak_dh stacked \
+  --move-layer fun stacked:tl \
+  --move-layer sys stacked:tr \
+  --move-layer num stacked:bl \
+  --move-layer nav stacked:br \
+  --move-combos colemak_dh,nav,num stacked -o stacked.yaml
 keymap -c config.yaml draw -k "ferris/sweep" stacked.yaml -o stacked.svg
 
-# With combos as separate layer (--separate-combo-layer flag)
-keymap -c config.yaml stack-layers --center colemak_dh --tl fun --tr sys --bl num --br nav \
-  ferris_sweep.yaml --include-combos colemak_dh nav num --separate-combo-layer -o stacked.yaml
+# With combos as a separate layer
+keymap -c config.yaml transform ferris_sweep.yaml \
+  --include-layers colemak_dh fun sys num nav \
+  --move-layer colemak_dh stacked \
+  --move-layer fun stacked:tl \
+  --move-layer sys stacked:tr \
+  --move-layer num stacked:bl \
+  --move-layer nav stacked:br \
+  --move-combos colemak_dh,nav,num stacked_combos -o stacked.yaml
 keymap -c config.yaml draw -k "ferris/sweep" stacked.yaml -o stacked.svg
 ```

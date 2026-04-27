@@ -33,7 +33,7 @@ jobs:
         run: uv sync --locked
 
       - name: Black
-        run: uv run black --check keymap_drawer
+        run: uv run black --check keymap_drawer tests
 
       - name: Pylint
         run: uv run pylint --disable=fixme keymap_drawer
@@ -48,5 +48,5 @@ jobs:
         if: success() || failure()
 
       - name: Unit tests
-        run: poetry run python -m unittest discover -s tests
+        run: uv run python -m unittest discover -s tests
         if: success() || failure()

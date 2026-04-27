@@ -38,7 +38,7 @@ It also decouples the physical keyboard layout from the keymap (i.e., layer and 
   - [Bootstrapping your keymap representation](#bootstrapping-your-keymap-representation)
   - [Tweaking the produced keymap representation](#tweaking-the-produced-keymap-representation)
   - [Producing the SVG](#producing-the-svg)
-  - [Stacking layers](#stacking-layers)
+  - [Transforming keymaps](#transforming-keymaps)
 - [Customization](#customization)
 - [Miscellanea](#miscellanea)
   - [Custom SVG glyphs](#custom-svg-glyphs)
@@ -148,26 +148,31 @@ And you are done! You can view the output SVG on your browser or use a tool like
 > or an ortho layout with `--ortho-layout` (using YAML syntax for the value) or `-n`/`--cols-thumbs-notation`.
 > See `keymap draw --help` for details.
 
-### Stacking layers
+### Transforming keymaps
 
-The **`keymap stack-layers`** command combines multiple layers into a single multi-position legend layer.
-This is useful for creating compact reference diagrams showing multiple layers at once.
+The **`keymap transform`** command rewrites one keymap YAML into another. This is the generic replacement for `keymap stack-layers`, which remains available as a deprecated compatibility wrapper.
+
+`transform` output is intentionally lossy with respect to comments, formatting, and YAML anchors because the result is reserialized.
+
+A stacked-layer diagram is now expressed as a transform recipe:
 
 ```sh
-keymap stack-layers --center Base --tl Fun --tr Sys --bl Num --br Nav keymap.yaml >stacked.yaml
+keymap transform keymap.yaml \
+  --include-layers Base Fun Sys Num Nav \
+  --move-layer Base stacked \
+  --move-layer Fun stacked:tl \
+  --move-layer Sys stacked:tr \
+  --move-layer Num stacked:bl \
+  --move-layer Nav stacked:br \
+  > stacked.yaml
 ```
 
-Each key in the output can show:
-- Center: primary layer tap/hold/shifted values
-- Corners (tl/tr/bl/br): tap values from specified layers
-
-Use `--list-layers` to see available layer names in your keymap.
-Use `--include-combos` to include combos from specific layers.
-The stacked output can be drawn with `keymap draw` like any other keymap YAML.
+Optional combo moves can target either `stacked` or a separate `stacked_combos` layer via `--move-combos`.
+The transformed output can be drawn with `keymap draw` like any other keymap YAML.
 
 ![Stacked layers example](site/showcase_stacked.svg)
 
-See [STACKED.md](STACKED.md) for detailed usage, combo options, configuration, and CSS styling instructions.
+See [TRANSFORM.md](TRANSFORM.md) for the stacked-layer recipe, generic transform options, combo recipes, configuration, and styling instructions.
 
 ## Customization
 

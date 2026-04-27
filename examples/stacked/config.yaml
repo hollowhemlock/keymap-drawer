@@ -42,8 +42,8 @@ draw_config:
   glyph_hold_size: 12
   glyph_shifted_size: 10
 
-# Used in keymap stack-layers
-stack_config:
+# Used in keymap transform
+transform_config:
   hidden_corner_legends:
     - ⇧
     - ⌃

@@ -11,16 +11,16 @@ layers:
   - {t: U, br: ↑}
   - {t: Y, br: Del}
   - ''''
-  - {t: A, h: ⇧, type: mod, tl: F11, tr: BT1, bl: '0'}
-  - {t: R, h: ⌃, type: mod, tl: F4, tr: BT2, bl: '4'}
-  - {t: S, h: ⌥, type: mod, tl: F5, tr: BT3, bl: '5'}
-  - {t: T, h: ⌘, type: mod, tl: F6, tr: BT4, bl: '6'}
+  - {t: A, h: ⇧, tl: F11, tr: BT1, bl: '0', type: mod}
+  - {t: R, h: ⌃, tl: F4, tr: BT2, bl: '4', type: mod}
+  - {t: S, h: ⌥, tl: F5, tr: BT3, bl: '5', type: mod}
+  - {t: T, h: ⌘, tl: F6, tr: BT4, bl: '6', type: mod}
   - {t: G, tl: SLCK, tr: BT5}
   - {t: M, tl: '$$mdi:play-pause$$', br: PgDn}
-  - {t: N, h: ⌘, type: mod, br: ←}
-  - {t: E, h: ⌥, type: mod, br: ↓}
-  - {t: I, h: ⌃, type: mod, br: →}
-  - {t: O, h: ⇧, type: mod, br: '$$mdi:keyboard-return$$'}
+  - {t: N, h: ⌘, br: ←, type: mod}
+  - {t: E, h: ⌥, br: ↓, type: mod}
+  - {t: I, h: ⌃, br: →, type: mod}
+  - {t: O, h: ⇧, br: '$$mdi:keyboard-return$$', type: mod}
   - {t: Z, tl: F10, tr: '$$mdi:bluetooth-off$$'}
   - {t: X, tl: F1, bl: '1'}
   - {t: C, tl: F2, bl: '2'}

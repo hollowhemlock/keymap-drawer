@@ -412,10 +412,11 @@ _Type:_ `list[str]`
 
 _Default:_ `[]`
 
-## Stack Configuration
+## Transform Configuration
 
-These settings are nested under the `stack_config` field and apply to the `keymap stack-layers` subcommand.
+These settings are nested under the `transform_config` field and apply to the `keymap transform` subcommand.
 This field can also be set in the keymap YAML which overrides the global configuration.
+`stack_config` is still accepted as a deprecated alias during the transition.
 
 #### `hidden_corner_legends`
 
