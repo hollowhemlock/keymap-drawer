@@ -1,7 +1,7 @@
 """Keymap YAML transformation engine."""
 
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from keymap_drawer.keymap import ComboSpec, LayoutKey
@@ -78,10 +78,10 @@ class LayerState:
         """Return whether every key in the layer is empty."""
         return not any(key.full_serializer() for key in self.keys)
 
-    def dump(self) -> list:
+    def dump(self) -> list[object]:
         """Serialize the layer using its original row grouping."""
-        flat = [key.serialize_model() for key in self.keys]
-        out = []
+        flat: list[str | dict[str, str]] = [key.serialize_model() for key in self.keys]
+        out: list[object] = []
         offset = 0
         for is_group, length in self.segments:
             chunk = flat[offset : offset + length]
@@ -92,6 +92,25 @@ class LayerState:
                 assert length == 1, f"Unexpected scalar segment length: {length}"
                 out.append(chunk[0])
         return out
+
+
+@dataclass
+class ComboState:
+    """Combo model plus serialization details that should be preserved."""
+
+    combo: ComboSpec
+    preserve_key_dict: bool = False
+
+    def clone(self) -> "ComboState":
+        """Return a deep copy of the combo state."""
+        return ComboState(combo=self.combo.model_copy(deep=True), preserve_key_dict=self.preserve_key_dict)
+
+    def dump(self) -> dict:
+        """Serialize the combo while preserving explicit single-field key dicts."""
+        raw = self.combo.model_dump(by_alias=True, exclude_defaults=True)
+        if self.preserve_key_dict and isinstance(raw.get("k"), str):
+            raw["k"] = {"t": raw["k"]}
+        return raw
 
 
 def parse_layer_move_spec(source: str, target: str) -> LayerMoveSpec:
@@ -134,7 +153,7 @@ def parse_combo_move_spec(source_set: str, target: str) -> ComboMoveSpec:
     return ComboMoveSpec(raw_source_set=source_set, target_layer=target_layer, source_layers=layers)
 
 
-def transform_keymap(
+def transform_keymap(  # pylint: disable=too-many-locals
     keymap: Mapping[str, object],
     *,
     transform_config: TransformConfig,
@@ -184,7 +203,7 @@ def transform_keymap(
     result["layers"] = {name: layer.dump() for name, layer in output_layers.items()}
 
     if output_combos or "combos" in keymap:
-        result["combos"] = [combo.model_dump(by_alias=True, exclude_defaults=True) for combo in output_combos]
+        result["combos"] = [combo.dump() for combo in output_combos]
 
     legacy_cfg = result.pop("stack_config", None)
     inline_cfg = result.get("transform_config")
@@ -326,6 +345,8 @@ def _apply_field_move(
     template_layer: LayerState,
 ) -> None:
     source_field = spec.source_field or "t"
+    target_field = spec.target_field
+    assert target_field is not None
     target = output_layers.get(spec.target_layer)
     if target is None:
         target = source.empty_like()
@@ -344,33 +365,40 @@ def _apply_field_move(
         if not source_value:
             continue
 
-        existing = _get_field(target_key, spec.target_field)
+        existing = _get_field(target_key, target_field)
         if existing:
             raise TransformError(
                 f"cannot apply --move-layer {spec.raw_flag}: "
-                f'{spec.target_layer}[{key_index}].{spec.target_field} is already set to "{existing}"'
+                f'{spec.target_layer}[{key_index}].{target_field} is already set to "{existing}"'
             )
-        _set_field(target_key, spec.target_field, source_value)
+        _set_field(target_key, target_field, source_value)
 
 
-def _transform_combos(
+def _transform_combos(  # pylint: disable=too-many-locals
     raw_combos: object,
     *,
     move_combos: Sequence[ComboMoveSpec],
     output_layers: dict[str, LayerState],
     source_layers: Mapping[str, LayerState],
     template_layer: LayerState,
-) -> list[ComboSpec]:
+) -> list[ComboState]:
     if raw_combos is None:
         raw_combos = []
     if not isinstance(raw_combos, list):
         raise TransformError('input keymap "combos" must be a list when present')
 
-    combos = [ComboSpec(**ComboSpec.normalize_fields(dict(combo_spec))) for combo_spec in raw_combos]
+    combos = [
+        ComboState(
+            combo=ComboSpec(**ComboSpec.normalize_fields(dict(combo_spec))),
+            preserve_key_dict=isinstance(combo_spec.get("k"), dict),
+        )
+        for combo_spec in raw_combos
+    ]
     moved_seen: set[tuple[str, tuple[int, ...], str]] = set()
-    out: list[ComboSpec] = []
+    out: list[ComboState] = []
 
-    for combo in combos:
+    for combo_state in combos:
+        combo = combo_state.combo
         matching_specs = [spec for spec in move_combos if _combo_matches_spec(combo, spec, source_layers)]
         if len(matching_specs) > 1:
             flags = ", ".join(f"--move-combos {spec.raw_flag}" for spec in matching_specs)
@@ -387,12 +415,12 @@ def _transform_combos(
             if spec.target_layer not in output_layers:
                 output_layers[spec.target_layer] = template_layer.empty_like()
 
-            moved = combo.model_copy(deep=True)
-            moved.layers = [spec.target_layer]
+            moved = combo_state.clone()
+            moved.combo.layers = [spec.target_layer]
             dedup_key = (
                 spec.target_layer,
-                tuple(sorted(moved.key_positions)),
-                _combo_key_signature(moved.key),
+                tuple(sorted(moved.combo.key_positions)),
+                _combo_key_signature(moved.combo.key),
             )
             if dedup_key in moved_seen:
                 continue
@@ -400,18 +428,19 @@ def _transform_combos(
             out.append(moved)
             continue
 
-        out.append(combo.model_copy(deep=True))
+        out.append(combo_state.clone())
 
     final_layers = set(output_layers)
-    filtered: list[ComboSpec] = []
-    for combo in out:
+    filtered: list[ComboState] = []
+    for combo_state in out:
+        combo = combo_state.combo
         if combo.layers:
             combo.layers = [layer for layer in combo.layers if layer in final_layers]
             if not combo.layers:
                 continue
         elif not final_layers:
             continue
-        filtered.append(combo)
+        filtered.append(combo_state)
 
     return filtered
 

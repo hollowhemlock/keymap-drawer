@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'keymap_drawer/**'
+      - 'tests/**'
       - pyproject.toml
       - uv.lock
   pull_request:
@@ -44,4 +45,8 @@ jobs:
 
       - name: Deptry
         run: uv run deptry .
+        if: success() || failure()
+
+      - name: Unit tests
+        run: poetry run python -m unittest discover -s tests
         if: success() || failure()

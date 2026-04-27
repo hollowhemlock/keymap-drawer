@@ -17,10 +17,10 @@ from keymap_drawer.config import Config, DrawConfig
 from keymap_drawer.draw import KeymapDrawer
 from keymap_drawer.keymap import KeymapData
 from keymap_drawer.parse import KanataKeymapParser, QmkJsonParser, ZmkKeymapParser
-from keymap_drawer.transform import (
+from keymap_drawer.transform.config import TransformConfig
+from keymap_drawer.transform.transformer import (
     ComboMoveSpec,
     LayerMoveSpec,
-    TransformConfig,
     TransformError,
     parse_combo_move_spec,
     parse_layer_move_spec,
@@ -70,7 +70,7 @@ def draw(args: Namespace, config: Config) -> None:
     )
 
     if custom_config := yaml_data.get("draw_config"):
-        config.draw_config = DrawConfig.parse_obj(config.draw_config.model_dump() | custom_config)
+        config.draw_config = DrawConfig.model_validate(config.draw_config.model_dump() | custom_config)
 
     drawer = KeymapDrawer(
         config=config,
@@ -151,9 +151,9 @@ def _merge_transform_config(base: TransformConfig, yaml_data: dict, hidden_corne
 
     merged = base
     if cfg_data:
-        merged = TransformConfig.parse_obj(base.model_dump() | cfg_data)
+        merged = TransformConfig.model_validate(base.model_dump() | cfg_data)
     if hidden_corner_legends:
-        merged = TransformConfig.parse_obj(merged.model_dump() | {"hidden_corner_legends": hidden_corner_legends})
+        merged = TransformConfig.model_validate(merged.model_dump() | {"hidden_corner_legends": hidden_corner_legends})
     return merged
 
 
@@ -200,7 +200,7 @@ def transform(args: Namespace, config: Config) -> None:
         sys.exit(2)
 
 
-def stack(args: Namespace, config: Config) -> None:
+def stack(args: Namespace, config: Config) -> None:  # pylint: disable=too-many-locals
     """Legacy wrapper for the deprecated `stack-layers` command."""
     yaml_data = _load_keymap_yaml(args.keymap_yaml)
     if args.list_layers:
@@ -257,7 +257,7 @@ def stack(args: Namespace, config: Config) -> None:
         sys.exit(2)
 
 
-def main() -> None:
+def main() -> None:  # pylint: disable=too-many-statements
     """Parse the configuration and print SVG using KeymapDrawer."""
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("-v", "--version", action="version", version=version("keymap-drawer"))
@@ -493,7 +493,7 @@ def main() -> None:
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    config = Config.parse_obj(yaml.safe_load(args.config)) if args.config else Config()
+    config = Config.model_validate(yaml.safe_load(args.config)) if args.config else Config()
 
     match args.command:
         case "draw":

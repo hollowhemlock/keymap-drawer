@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings
 
-from keymap_drawer.transform import TransformConfig
+from keymap_drawer.transform.config import TransformConfig
 
 
 class DrawConfig(BaseSettings, env_prefix="KEYMAP_", extra="ignore"):
