@@ -210,6 +210,10 @@ def stack(args: Namespace, config: Config) -> None:  # pylint: disable=too-many-
             print(f"  - {name}")
         return
 
+    if not args.center:
+        print("Error: --center is required unless --list-layers is used", file=sys.stderr)
+        sys.exit(2)
+
     print(
         'Warning: `keymap stack-layers` is deprecated and will be removed in a future release; '
         'use `keymap transform` instead.',
@@ -441,7 +445,6 @@ def main() -> None:  # pylint: disable=too-many-statements
     )
     stack_p.add_argument(
         "--center",
-        required=True,
         help="Layer name for center position (primary layer)",
     )
     stack_p.add_argument("--tl", help="Layer name for top-left corner")

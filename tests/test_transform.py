@@ -109,6 +109,61 @@ class TransformEngineTest(unittest.TestCase):
         self.assertEqual(moved_combo["k"], "Esc")
         self.assertEqual(transformed["combos"][1]["draw_separate"], True)
 
+    def test_move_combos_preserves_unmoved_layer_memberships(self):
+        keymap = self.keymap()
+        keymap["combos"] = [{"p": [0, 1], "k": "Esc", "l": ["Base", "Nav"]}]
+
+        transformed = transform_keymap(
+            keymap,
+            transform_config=self.cfg,
+            move_combos=[parse_combo_move_spec("Base", "ComboLayer")],
+        )
+
+        self.assertEqual(transformed["combos"][0]["l"], ["ComboLayer", "Nav"])
+
+    def test_move_combos_expand_global_membership_before_rewrite(self):
+        keymap = self.keymap()
+        keymap["combos"] = [{"p": [0, 1], "k": "Esc"}]
+
+        transformed = transform_keymap(
+            keymap,
+            transform_config=self.cfg,
+            move_combos=[parse_combo_move_spec("Base", "ComboLayer")],
+            include_layers=["Base", "Nav"],
+        )
+
+        self.assertEqual(list(transformed["layers"]), ["Base", "Nav", "ComboLayer"])
+        self.assertEqual(transformed["combos"][0]["l"], ["ComboLayer", "Nav"])
+
+    def test_move_layers_resolve_against_current_state(self):
+        transformed = transform_keymap(
+            self.keymap(),
+            transform_config=self.cfg,
+            move_layers=[
+                parse_layer_move_spec("Base", "Main"),
+                parse_layer_move_spec("Main:h", "Overlay:tr"),
+            ],
+        )
+
+        self.assertNotIn("Base", transformed["layers"])
+        self.assertNotIn("Main", transformed["layers"])
+        self.assertEqual(transformed["layers"]["Overlay"][1]["tr"], "sticky")
+
+    def test_exclude_layers_apply_after_combo_moves(self):
+        keymap = self.keymap()
+        keymap["combos"] = [{"p": [0, 1], "k": "Esc", "l": ["Base"]}]
+
+        transformed = transform_keymap(
+            keymap,
+            transform_config=self.cfg,
+            move_combos=[parse_combo_move_spec("Base", "Nav")],
+            include_layers=["Base", "Nav"],
+            exclude_layers=["Nav"],
+        )
+
+        self.assertEqual(list(transformed["layers"]), ["Base"])
+        self.assertEqual(transformed["combos"], [])
+
     def test_hidden_legends_only_apply_to_written_fields(self):
         transformed = transform_keymap(
             self.keymap(),
@@ -144,6 +199,27 @@ class TransformEngineTest(unittest.TestCase):
 
 class TransformCliTest(unittest.TestCase):
     """CLI-level compatibility checks."""
+
+    def test_stack_wrapper_list_layers_does_not_require_center(self):
+        keymap_path = STACKED_DIR / "ferris_sweep.yaml"
+
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "keymap_drawer",
+                "stack-layers",
+                str(keymap_path),
+                "--list-layers",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertIn("Available layers:", proc.stdout)
+        self.assertIn("colemak_dh", proc.stdout)
 
     def test_transform_and_stack_wrapper_match_checked_in_example(self):
         expected = yaml.safe_load((STACKED_DIR / "stacked.yaml").read_text(encoding="utf-8"))

@@ -180,15 +180,7 @@ def transform_keymap(  # pylint: disable=too-many-locals
     template_layer = next(iter(source_layers.values()))
 
     _validate_combo_specs(move_combos, source_layers)
-    touched_fields = _apply_layer_moves(output_layers, source_layers, move_layers, template_layer)
-
-    output_layers = {
-        name: layer
-        for name, layer in output_layers.items()
-        if name not in set(exclude_layers or ())
-    }
-    if not output_layers:
-        raise TransformError("transform would remove every layer from the output")
+    touched_fields = _apply_layer_moves(output_layers, move_layers, template_layer)
 
     output_combos = _transform_combos(
         keymap.get("combos", []),
@@ -197,6 +189,14 @@ def transform_keymap(  # pylint: disable=too-many-locals
         source_layers=source_layers,
         template_layer=template_layer,
     )
+    output_layers = {
+        name: layer
+        for name, layer in output_layers.items()
+        if name not in set(exclude_layers or ())
+    }
+    if not output_layers:
+        raise TransformError("transform would remove every layer from the output")
+    output_combos = _filter_combos(output_combos, output_layers)
     _apply_hidden_legends(output_layers, transform_config, touched_fields)
 
     result = dict(keymap)
@@ -286,7 +286,6 @@ def _validate_combo_specs(move_combos: Sequence[ComboMoveSpec], source_layers: M
 
 def _apply_layer_moves(
     output_layers: dict[str, LayerState],
-    source_layers: Mapping[str, LayerState],
     move_layers: Sequence[LayerMoveSpec],
     template_layer: LayerState,
 ) -> dict[str, set[str]]:
@@ -294,7 +293,7 @@ def _apply_layer_moves(
     touched_fields: dict[str, set[str]] = {}
 
     for spec in move_layers:
-        source = source_layers.get(spec.source_layer)
+        source = output_layers.get(spec.source_layer)
         if source is None:
             raise TransformError(f'cannot apply --move-layer {spec.raw_flag}: unknown source layer "{spec.source_layer}"')
         if spec.target_layer == spec.source_layer:
@@ -394,7 +393,7 @@ def _transform_combos(  # pylint: disable=too-many-locals
         )
         for combo_spec in raw_combos
     ]
-    moved_seen: set[tuple[str, tuple[int, ...], str]] = set()
+    moved_seen: dict[tuple[str, tuple[int, ...], str], ComboState] = {}
     out: list[ComboState] = []
 
     for combo_state in combos:
@@ -416,33 +415,23 @@ def _transform_combos(  # pylint: disable=too-many-locals
                 output_layers[spec.target_layer] = template_layer.empty_like()
 
             moved = combo_state.clone()
-            moved.combo.layers = [spec.target_layer]
+            moved.combo.layers = _rewrite_combo_layers(combo, spec, source_layers)
             dedup_key = (
                 spec.target_layer,
                 tuple(sorted(moved.combo.key_positions)),
                 _combo_key_signature(moved.combo.key),
             )
             if dedup_key in moved_seen:
+                existing = moved_seen[dedup_key]
+                existing.combo.layers = _merge_layer_names(existing.combo.layers, moved.combo.layers)
                 continue
-            moved_seen.add(dedup_key)
+            moved_seen[dedup_key] = moved
             out.append(moved)
             continue
 
         out.append(combo_state.clone())
 
-    final_layers = set(output_layers)
-    filtered: list[ComboState] = []
-    for combo_state in out:
-        combo = combo_state.combo
-        if combo.layers:
-            combo.layers = [layer for layer in combo.layers if layer in final_layers]
-            if not combo.layers:
-                continue
-        elif not final_layers:
-            continue
-        filtered.append(combo_state)
-
-    return filtered
+    return out
 
 
 def _combo_matches_spec(combo: ComboSpec, spec: ComboMoveSpec, source_layers: Mapping[str, LayerState]) -> bool:
@@ -451,6 +440,56 @@ def _combo_matches_spec(combo: ComboSpec, spec: ComboMoveSpec, source_layers: Ma
     if not combo.layers:
         return any(layer in source_layers for layer in spec.source_layers)
     return any(layer in spec.source_layers for layer in combo.layers)
+
+
+def _rewrite_combo_layers(
+    combo: ComboSpec,
+    spec: ComboMoveSpec,
+    source_layers: Mapping[str, LayerState],
+) -> list[str]:
+    current_layers = list(combo.layers) if combo.layers else list(source_layers)
+    moved_from = set(spec.source_layers or current_layers)
+    rewritten: list[str] = []
+    inserted_target = False
+
+    for layer in current_layers:
+        if layer in moved_from:
+            if not inserted_target:
+                rewritten.append(spec.target_layer)
+                inserted_target = True
+            continue
+        rewritten.append(layer)
+
+    if not inserted_target:
+        rewritten.append(spec.target_layer)
+
+    return _merge_layer_names((), rewritten)
+
+
+def _merge_layer_names(existing: Sequence[str], new_layers: Sequence[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for layer in [*existing, *new_layers]:
+        if layer in seen:
+            continue
+        seen.add(layer)
+        merged.append(layer)
+    return merged
+
+
+def _filter_combos(combos: Sequence[ComboState], output_layers: Mapping[str, LayerState]) -> list[ComboState]:
+    final_layers = set(output_layers)
+    filtered: list[ComboState] = []
+    for combo_state in combos:
+        combo = combo_state.combo
+        if combo.layers:
+            combo.layers = [layer for layer in combo.layers if layer in final_layers]
+            if not combo.layers:
+                continue
+        elif not final_layers:
+            continue
+        filtered.append(combo_state)
+    return filtered
 
 
 def _combo_key_signature(key: LayoutKey) -> str:
