@@ -136,4 +136,4 @@ keymap transform \
   --move-layer BR stacked:br
 ```
 
-See [`examples/stacked/`](examples/stacked/) for a complete working example.
+See [`examples/transform/`](examples/transform/) for a complete working example.
