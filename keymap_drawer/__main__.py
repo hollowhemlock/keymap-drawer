@@ -16,8 +16,16 @@ from keymap_drawer import logger
 from keymap_drawer.config import Config, DrawConfig
 from keymap_drawer.draw import KeymapDrawer
 from keymap_drawer.keymap import KeymapData
-from keymap_drawer.stack import CornerLayers, StackConfig, stack_layers
 from keymap_drawer.parse import KanataKeymapParser, QmkJsonParser, ZmkKeymapParser
+from keymap_drawer.transform import (
+    ComboMoveSpec,
+    LayerMoveSpec,
+    TransformConfig,
+    TransformError,
+    parse_combo_move_spec,
+    parse_layer_move_spec,
+    transform_keymap,
+)
 
 
 def _merge_keymaps(base: dict, new: dict) -> dict:
@@ -129,11 +137,72 @@ def dump_config(args: Namespace, config: Config) -> None:
     yaml.safe_dump(config.model_dump(), args.output, sort_keys=False, allow_unicode=True)
 
 
-def stack(args: Namespace, config: Config) -> None:
-    """Stack multiple layers into a single multi-position legend layer."""
-    yaml_data = yaml.safe_load(args.keymap_yaml)
+def _load_keymap_yaml(in_buf) -> dict:
+    data = yaml.safe_load(in_buf) or {}
+    if not isinstance(data, dict):
+        raise TransformError("input keymap YAML must deserialize to a mapping")
+    return data
 
-    # List layers mode
+
+def _merge_transform_config(base: TransformConfig, yaml_data: dict, hidden_corner_legends: list[str] | None = None) -> TransformConfig:
+    cfg_data = yaml_data.get("transform_config")
+    if cfg_data is None:
+        cfg_data = yaml_data.get("stack_config")
+
+    merged = base
+    if cfg_data:
+        merged = TransformConfig.parse_obj(base.model_dump() | cfg_data)
+    if hidden_corner_legends:
+        merged = TransformConfig.parse_obj(merged.model_dump() | {"hidden_corner_legends": hidden_corner_legends})
+    return merged
+
+
+def _run_transform(
+    *,
+    yaml_data: dict,
+    output,
+    transform_config: TransformConfig,
+    move_layers: list[LayerMoveSpec],
+    move_combos: list[ComboMoveSpec],
+    include_layers: list[str] | None,
+    exclude_layers: list[str] | None,
+) -> None:
+    transformed = transform_keymap(
+        yaml_data,
+        transform_config=transform_config,
+        move_layers=move_layers,
+        move_combos=move_combos,
+        include_layers=include_layers,
+        exclude_layers=exclude_layers,
+    )
+    yaml.safe_dump(transformed, output, width=160, sort_keys=False, default_flow_style=None, allow_unicode=True)
+
+
+def transform(args: Namespace, config: Config) -> None:
+    """Transform a keymap YAML into another keymap YAML."""
+    yaml_data = _load_keymap_yaml(args.keymap_yaml)
+    transform_config = _merge_transform_config(config.transform_config, yaml_data)
+
+    try:
+        move_layers = [parse_layer_move_spec(source, target) for source, target in args.move_layer or []]
+        move_combos = [parse_combo_move_spec(source_set, target) for source_set, target in args.move_combos or []]
+        _run_transform(
+            yaml_data=yaml_data,
+            output=args.output,
+            transform_config=transform_config,
+            move_layers=move_layers,
+            move_combos=move_combos,
+            include_layers=args.include_layers,
+            exclude_layers=args.exclude_layers,
+        )
+    except TransformError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
+def stack(args: Namespace, config: Config) -> None:
+    """Legacy wrapper for the deprecated `stack-layers` command."""
+    yaml_data = _load_keymap_yaml(args.keymap_yaml)
     if args.list_layers:
         layers = yaml_data.get("layers", {})
         print("Available layers:")
@@ -141,27 +210,51 @@ def stack(args: Namespace, config: Config) -> None:
             print(f"  - {name}")
         return
 
-    # Build corner layers config
-    corner_layers = CornerLayers(
-        tl=args.tl,
-        tr=args.tr,
-        bl=args.bl,
-        br=args.br,
+    print(
+        'Warning: `keymap stack-layers` is deprecated and will be removed in a future release; '
+        'use `keymap transform` instead.',
+        file=sys.stderr,
     )
 
-    # Build stack config: global config -> YAML override -> CLI args
-    stack_config = config.stack_config
-    if custom_config := yaml_data.get("stack_config"):
-        stack_config = StackConfig.parse_obj(stack_config.model_dump() | custom_config)
-    if args.hidden_corner_legends:
-        stack_config = StackConfig.parse_obj(stack_config.model_dump() | {"hidden_corner_legends": args.hidden_corner_legends})
+    transform_config = _merge_transform_config(
+        config.transform_config,
+        yaml_data,
+        hidden_corner_legends=args.hidden_corner_legends,
+    )
 
-    # Stack layers
-    combo_layers = args.include_combos if args.include_combos is not None else None
-    stacked = stack_layers(yaml_data, args.center, corner_layers, stack_config, combo_layers, args.separate_combo_layer)
+    move_layers = [parse_layer_move_spec(args.center, "stacked")]
+    for layer_name, target_field in (
+        (args.tl, "tl"),
+        (args.tr, "tr"),
+        (args.bl, "bl"),
+        (args.br, "br"),
+    ):
+        if layer_name:
+            move_layers.append(parse_layer_move_spec(layer_name, f"stacked:{target_field}"))
 
-    # Write output
-    yaml.safe_dump(stacked, args.output, width=160, sort_keys=False, default_flow_style=None, allow_unicode=True)
+    move_sources = {spec.source_layer for spec in move_layers}
+    combo_sources = args.include_combos or []
+    include_layers = list(dict.fromkeys([*move_sources, *combo_sources]))
+    exclude_layers = [layer for layer in combo_sources if layer not in move_sources] or None
+
+    move_combos: list[ComboMoveSpec] = []
+    if combo_sources:
+        target_layer = "stacked_combos" if args.separate_combo_layer else "stacked"
+        move_combos.append(parse_combo_move_spec(",".join(combo_sources), target_layer))
+
+    try:
+        _run_transform(
+            yaml_data=yaml_data,
+            output=args.output,
+            transform_config=transform_config,
+            move_layers=move_layers,
+            move_combos=move_combos,
+            include_layers=include_layers,
+            exclude_layers=exclude_layers,
+        )
+    except TransformError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 def main() -> None:
@@ -294,9 +387,52 @@ def main() -> None:
         default=sys.stdout,
     )
 
+    transform_p = subparsers.add_parser(
+        "transform",
+        help="transform a keymap YAML into another YAML (lossy: comments/formatting are not preserved)",
+    )
+    transform_p.add_argument(
+        "keymap_yaml",
+        help="YAML file containing a keymap to transform",
+        type=FileType("rt", encoding="utf-8"),
+    )
+    transform_p.add_argument(
+        "--include-layers",
+        nargs="+",
+        metavar="LAYER",
+        help="Only keep these layers in the working set before applying moves",
+    )
+    transform_p.add_argument(
+        "--exclude-layers",
+        nargs="+",
+        metavar="LAYER",
+        help="Drop these layers after all moves have been applied",
+    )
+    transform_p.add_argument(
+        "--move-layer",
+        action="append",
+        nargs=2,
+        metavar=("SRC", "TARGET"),
+        help='Move a layer or a field, e.g. "Base stacked" or "Nav stacked:tr"',
+    )
+    transform_p.add_argument(
+        "--move-combos",
+        action="append",
+        nargs=2,
+        metavar=("SOURCE_SET", "TARGET"),
+        help='Move combos from "*" or a comma-separated source layer list to TARGET',
+    )
+    transform_p.add_argument(
+        "-o",
+        "--output",
+        help="Output to path instead of stdout",
+        type=FileType("wt", encoding="utf-8"),
+        default=sys.stdout,
+    )
+
     stack_p = subparsers.add_parser(
         "stack-layers",
-        help="stack multiple layers into a single multi-position legend layer",
+        help="deprecated: stack multiple layers into a single multi-position legend layer",
     )
     stack_p.add_argument(
         "keymap_yaml",
@@ -364,6 +500,8 @@ def main() -> None:
             draw(args, config)
         case "parse":
             parse(args, config)
+        case "transform":
+            transform(args, config)
         case "stack-layers":
             stack(args, config)
         case "dump-config":

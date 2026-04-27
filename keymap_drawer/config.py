@@ -6,10 +6,10 @@ keycode converters for parsing.
 from textwrap import dedent
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings
 
-from keymap_drawer.stack import StackConfig
+from keymap_drawer.transform import TransformConfig
 
 
 class DrawConfig(BaseSettings, env_prefix="KEYMAP_", extra="ignore"):
@@ -498,4 +498,7 @@ class Config(BaseSettings, env_prefix="KEYMAP_"):
 
     draw_config: DrawConfig = DrawConfig()
     parse_config: ParseConfig = ParseConfig()
-    stack_config: StackConfig = StackConfig()
+    transform_config: TransformConfig = Field(
+        default_factory=TransformConfig,
+        validation_alias=AliasChoices("transform_config", "stack_config"),
+    )

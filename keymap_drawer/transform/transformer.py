@@ -1,0 +1,464 @@
+"""Keymap YAML transformation engine."""
+
+import json
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+
+from keymap_drawer.keymap import ComboSpec, LayoutKey
+
+from .config import TransformConfig
+
+FIELD_ATTRS = {
+    "t": "tap",
+    "h": "hold",
+    "s": "shifted",
+    "left": "left",
+    "right": "right",
+    "tl": "tl",
+    "tr": "tr",
+    "bl": "bl",
+    "br": "br",
+}
+
+
+class TransformError(ValueError):
+    """Raised when a requested transform cannot be applied safely."""
+
+
+@dataclass(frozen=True)
+class LayerMoveSpec:
+    """Parsed `--move-layer` specification."""
+
+    source_layer: str
+    target_layer: str
+    source_field: str | None = None
+    target_field: str | None = None
+    raw_source: str = ""
+    raw_target: str = ""
+
+    @property
+    def raw_flag(self) -> str:
+        """Return the flag payload as the user provided it."""
+        return f"{self.raw_source} {self.raw_target}".strip()
+
+
+@dataclass(frozen=True)
+class ComboMoveSpec:
+    """Parsed `--move-combos` specification."""
+
+    raw_source_set: str
+    target_layer: str
+    source_layers: tuple[str, ...] | None = None
+
+    @property
+    def raw_flag(self) -> str:
+        """Return the flag payload as the user provided it."""
+        return f"{self.raw_source_set} {self.target_layer}".strip()
+
+
+@dataclass
+class LayerState:
+    """Flat layer data plus enough shape info to reconstruct rows."""
+
+    keys: list[LayoutKey]
+    segments: list[tuple[bool, int]]
+
+    def clone(self) -> "LayerState":
+        """Return a deep copy of the layer."""
+        return LayerState(
+            keys=[key.model_copy(deep=True) for key in self.keys],
+            segments=list(self.segments),
+        )
+
+    def empty_like(self) -> "LayerState":
+        """Return an empty layer with the same shape."""
+        return LayerState(keys=[LayoutKey() for _ in self.keys], segments=list(self.segments))
+
+    def is_empty(self) -> bool:
+        """Return whether every key in the layer is empty."""
+        return not any(key.full_serializer() for key in self.keys)
+
+    def dump(self) -> list:
+        """Serialize the layer using its original row grouping."""
+        flat = [key.serialize_model() for key in self.keys]
+        out = []
+        offset = 0
+        for is_group, length in self.segments:
+            chunk = flat[offset : offset + length]
+            offset += length
+            if is_group:
+                out.append(chunk)
+            else:
+                assert length == 1, f"Unexpected scalar segment length: {length}"
+                out.append(chunk[0])
+        return out
+
+
+def parse_layer_move_spec(source: str, target: str) -> LayerMoveSpec:
+    """Parse one `--move-layer SRC[:FIELD] TARGET[:FIELD]` payload."""
+    source_layer, source_field = _split_layer_ref(source, allow_field=True)
+    target_layer, target_field = _split_layer_ref(target, allow_field=True)
+
+    if source_field is not None and target_field is None:
+        raise TransformError(
+            f'invalid --move-layer {source} {target}: target needs a field when source uses one'
+        )
+
+    return LayerMoveSpec(
+        source_layer=source_layer,
+        source_field=source_field,
+        target_layer=target_layer,
+        target_field=target_field,
+        raw_source=source,
+        raw_target=target,
+    )
+
+
+def parse_combo_move_spec(source_set: str, target: str) -> ComboMoveSpec:
+    """Parse one `--move-combos SOURCE_SET TARGET` payload."""
+    target_layer, target_field = _split_layer_ref(target, allow_field=True)
+    if target_field is not None:
+        raise TransformError(
+            f'invalid --move-combos {source_set} {target}: combo targets must be layer names without a field'
+        )
+
+    if source_set == "*":
+        return ComboMoveSpec(raw_source_set=source_set, target_layer=target_layer, source_layers=None)
+
+    layers = tuple(layer.strip() for layer in source_set.split(",") if layer.strip())
+    if not layers or ",".join(layers) != source_set:
+        raise TransformError(
+            f'invalid --move-combos {source_set} {target}: SOURCE_SET must be "*" or a comma-separated layer list'
+        )
+
+    return ComboMoveSpec(raw_source_set=source_set, target_layer=target_layer, source_layers=layers)
+
+
+def transform_keymap(
+    keymap: Mapping[str, object],
+    *,
+    transform_config: TransformConfig,
+    move_layers: Sequence[LayerMoveSpec] = (),
+    move_combos: Sequence[ComboMoveSpec] = (),
+    include_layers: Sequence[str] | None = None,
+    exclude_layers: Sequence[str] | None = None,
+) -> dict:
+    """Transform a keymap YAML mapping into a new YAML mapping."""
+    if "layers" not in keymap:
+        raise TransformError('input keymap is missing a "layers" mapping')
+    if not isinstance(keymap["layers"], Mapping):
+        raise TransformError('input keymap "layers" must be a mapping of layer names to key lists')
+
+    all_layers = _normalize_layers(keymap["layers"])
+    if not all_layers:
+        raise TransformError("input keymap does not define any layers")
+
+    layer_names = list(all_layers)
+    selected_names = _select_layers(layer_names, include_layers, exclude_layers)
+    working_layers = {name: all_layers[name].clone() for name in selected_names}
+    source_layers = {name: layer.clone() for name, layer in working_layers.items()}
+    output_layers = {name: layer.clone() for name, layer in working_layers.items()}
+    template_layer = next(iter(source_layers.values()))
+
+    _validate_combo_specs(move_combos, source_layers)
+    touched_fields = _apply_layer_moves(output_layers, source_layers, move_layers, template_layer)
+
+    output_layers = {
+        name: layer
+        for name, layer in output_layers.items()
+        if name not in set(exclude_layers or ())
+    }
+    if not output_layers:
+        raise TransformError("transform would remove every layer from the output")
+
+    output_combos = _transform_combos(
+        keymap.get("combos", []),
+        move_combos=move_combos,
+        output_layers=output_layers,
+        source_layers=source_layers,
+        template_layer=template_layer,
+    )
+    _apply_hidden_legends(output_layers, transform_config, touched_fields)
+
+    result = dict(keymap)
+    result["layers"] = {name: layer.dump() for name, layer in output_layers.items()}
+
+    if output_combos or "combos" in keymap:
+        result["combos"] = [combo.model_dump(by_alias=True, exclude_defaults=True) for combo in output_combos]
+
+    legacy_cfg = result.pop("stack_config", None)
+    inline_cfg = result.get("transform_config")
+    if inline_cfg is None and legacy_cfg is not None:
+        result["transform_config"] = legacy_cfg
+
+    return result
+
+
+def _split_layer_ref(value: str, *, allow_field: bool) -> tuple[str, str | None]:
+    if value.count(":") > 1:
+        raise TransformError(f'invalid layer reference "{value}": expected at most one ":" separator')
+    if ":" not in value:
+        return value, None
+    if not allow_field:
+        raise TransformError(f'invalid layer reference "{value}"')
+    layer_name, field_name = value.split(":", maxsplit=1)
+    if field_name not in FIELD_ATTRS:
+        valid = ", ".join(FIELD_ATTRS)
+        raise TransformError(f'invalid layer reference "{value}": field must be one of {valid}')
+    return layer_name, field_name
+
+
+def _normalize_layers(raw_layers: Mapping[str, object]) -> dict[str, LayerState]:
+    layers: dict[str, LayerState] = {}
+    for layer_name, raw_layer in raw_layers.items():
+        if not isinstance(raw_layer, list):
+            raise TransformError(f'layer "{layer_name}" must be a list of keys')
+
+        flat_keys: list[LayoutKey] = []
+        segments: list[tuple[bool, int]] = []
+        for item in raw_layer:
+            if isinstance(item, list):
+                segments.append((True, len(item)))
+                flat_keys.extend(LayoutKey.from_key_spec(key_spec) for key_spec in item)
+            else:
+                segments.append((False, 1))
+                flat_keys.append(LayoutKey.from_key_spec(item))
+
+        layers[layer_name] = LayerState(keys=flat_keys, segments=segments)
+
+    counts = {name: len(layer.keys) for name, layer in layers.items()}
+    if len(set(counts.values())) > 1:
+        details = ", ".join(f"{name}={count}" for name, count in counts.items())
+        raise TransformError(f"input keymap has inconsistent layer lengths: {details}")
+
+    return layers
+
+
+def _select_layers(
+    layer_names: Sequence[str],
+    include_layers: Sequence[str] | None,
+    exclude_layers: Sequence[str] | None,
+) -> list[str]:
+    selected = list(layer_names)
+    if include_layers is not None:
+        unknown = [name for name in include_layers if name not in layer_names]
+        if unknown:
+            raise TransformError(f'unknown layer(s) in --include-layers: {", ".join(unknown)}')
+        selected = [name for name in layer_names if name in set(include_layers)]
+
+    if exclude_layers is not None:
+        unknown = [name for name in exclude_layers if name not in layer_names]
+        if unknown:
+            raise TransformError(f'unknown layer(s) in --exclude-layers: {", ".join(unknown)}')
+
+    return selected
+
+
+def _validate_combo_specs(move_combos: Sequence[ComboMoveSpec], source_layers: Mapping[str, LayerState]) -> None:
+    for spec in move_combos:
+        if spec.source_layers is None:
+            continue
+        unknown = [name for name in spec.source_layers if name not in source_layers]
+        if unknown:
+            raise TransformError(
+                f'cannot apply --move-combos {spec.raw_flag}: unknown source layer(s) {", ".join(unknown)}'
+            )
+
+
+def _apply_layer_moves(
+    output_layers: dict[str, LayerState],
+    source_layers: Mapping[str, LayerState],
+    move_layers: Sequence[LayerMoveSpec],
+    template_layer: LayerState,
+) -> dict[str, set[str]]:
+    seen_target_fields: dict[tuple[str, str], LayerMoveSpec] = {}
+    touched_fields: dict[str, set[str]] = {}
+
+    for spec in move_layers:
+        source = source_layers.get(spec.source_layer)
+        if source is None:
+            raise TransformError(f'cannot apply --move-layer {spec.raw_flag}: unknown source layer "{spec.source_layer}"')
+        if spec.target_layer == spec.source_layer:
+            raise TransformError(
+                f'cannot apply --move-layer {spec.raw_flag}: source and target layer names must differ'
+            )
+
+        if spec.target_field is None:
+            _apply_full_layer_move(output_layers, source, spec)
+            touched_fields.setdefault(spec.target_layer, set()).update(FIELD_ATTRS)
+        else:
+            seen_key = (spec.target_layer, spec.target_field)
+            if seen_key in seen_target_fields:
+                first_spec = seen_target_fields[seen_key]
+                raise TransformError(
+                    f"cannot apply --move-layer {spec.raw_flag}: "
+                    f"destination {spec.target_layer}:{spec.target_field} is already targeted by "
+                    f"--move-layer {first_spec.raw_flag}"
+                )
+            seen_target_fields[seen_key] = spec
+            _apply_field_move(output_layers, source, spec, template_layer)
+            touched_fields.setdefault(spec.target_layer, set()).add(spec.target_field)
+
+        output_layers.pop(spec.source_layer, None)
+
+    return touched_fields
+
+
+def _apply_full_layer_move(output_layers: dict[str, LayerState], source: LayerState, spec: LayerMoveSpec) -> None:
+    target = output_layers.get(spec.target_layer)
+    if target is not None:
+        if len(target.keys) != len(source.keys):
+            raise TransformError(
+                f"cannot apply --move-layer {spec.raw_flag}: "
+                f'target layer "{spec.target_layer}" has {len(target.keys)} keys, expected {len(source.keys)}'
+            )
+        if not target.is_empty():
+            raise TransformError(
+                f'cannot apply --move-layer {spec.raw_flag}: target layer "{spec.target_layer}" is not empty'
+            )
+    output_layers[spec.target_layer] = source.clone()
+
+
+def _apply_field_move(
+    output_layers: dict[str, LayerState],
+    source: LayerState,
+    spec: LayerMoveSpec,
+    template_layer: LayerState,
+) -> None:
+    source_field = spec.source_field or "t"
+    target = output_layers.get(spec.target_layer)
+    if target is None:
+        target = source.empty_like()
+        if len(target.keys) != len(template_layer.keys):
+            target = template_layer.empty_like()
+        output_layers[spec.target_layer] = target
+
+    if len(target.keys) != len(source.keys):
+        raise TransformError(
+            f"cannot apply --move-layer {spec.raw_flag}: "
+            f'target layer "{spec.target_layer}" has {len(target.keys)} keys, expected {len(source.keys)}'
+        )
+
+    for key_index, (source_key, target_key) in enumerate(zip(source.keys, target.keys)):
+        source_value = _get_field(source_key, source_field)
+        if not source_value:
+            continue
+
+        existing = _get_field(target_key, spec.target_field)
+        if existing:
+            raise TransformError(
+                f"cannot apply --move-layer {spec.raw_flag}: "
+                f'{spec.target_layer}[{key_index}].{spec.target_field} is already set to "{existing}"'
+            )
+        _set_field(target_key, spec.target_field, source_value)
+
+
+def _transform_combos(
+    raw_combos: object,
+    *,
+    move_combos: Sequence[ComboMoveSpec],
+    output_layers: dict[str, LayerState],
+    source_layers: Mapping[str, LayerState],
+    template_layer: LayerState,
+) -> list[ComboSpec]:
+    if raw_combos is None:
+        raw_combos = []
+    if not isinstance(raw_combos, list):
+        raise TransformError('input keymap "combos" must be a list when present')
+
+    combos = [ComboSpec(**ComboSpec.normalize_fields(dict(combo_spec))) for combo_spec in raw_combos]
+    moved_seen: set[tuple[str, tuple[int, ...], str]] = set()
+    out: list[ComboSpec] = []
+
+    for combo in combos:
+        matching_specs = [spec for spec in move_combos if _combo_matches_spec(combo, spec, source_layers)]
+        if len(matching_specs) > 1:
+            flags = ", ".join(f"--move-combos {spec.raw_flag}" for spec in matching_specs)
+            raise TransformError(
+                "cannot move combo at positions "
+                f"{combo.key_positions}: it matches multiple combo moves ({flags})"
+            )
+
+        if matching_specs and combo.draw_separate:
+            matching_specs = []
+
+        if matching_specs:
+            spec = matching_specs[0]
+            if spec.target_layer not in output_layers:
+                output_layers[spec.target_layer] = template_layer.empty_like()
+
+            moved = combo.model_copy(deep=True)
+            moved.layers = [spec.target_layer]
+            dedup_key = (
+                spec.target_layer,
+                tuple(sorted(moved.key_positions)),
+                _combo_key_signature(moved.key),
+            )
+            if dedup_key in moved_seen:
+                continue
+            moved_seen.add(dedup_key)
+            out.append(moved)
+            continue
+
+        out.append(combo.model_copy(deep=True))
+
+    final_layers = set(output_layers)
+    filtered: list[ComboSpec] = []
+    for combo in out:
+        if combo.layers:
+            combo.layers = [layer for layer in combo.layers if layer in final_layers]
+            if not combo.layers:
+                continue
+        elif not final_layers:
+            continue
+        filtered.append(combo)
+
+    return filtered
+
+
+def _combo_matches_spec(combo: ComboSpec, spec: ComboMoveSpec, source_layers: Mapping[str, LayerState]) -> bool:
+    if spec.source_layers is None:
+        return True
+    if not combo.layers:
+        return any(layer in source_layers for layer in spec.source_layers)
+    return any(layer in spec.source_layers for layer in combo.layers)
+
+
+def _combo_key_signature(key: LayoutKey) -> str:
+    return json.dumps(key.model_dump(exclude_defaults=True, by_alias=True), sort_keys=True)
+
+
+def _apply_hidden_legends(
+    layers: Mapping[str, LayerState],
+    cfg: TransformConfig,
+    touched_fields: Mapping[str, set[str]],
+) -> None:
+    hidden_corner = set(cfg.hidden_corner_legends)
+    hidden_held = set(cfg.hidden_held_legends)
+    hidden_shifted = set(cfg.hidden_shifted_legends)
+
+    for layer_name, layer in layers.items():
+        active_fields = touched_fields.get(layer_name, set())
+        if not active_fields:
+            continue
+        for key in layer.keys:
+            if "h" in active_fields and key.hold in hidden_held:
+                key.hold = ""
+            if "s" in active_fields and key.shifted in hidden_shifted:
+                key.shifted = ""
+            if "tl" in active_fields and key.tl in hidden_corner:
+                key.tl = ""
+            if "tr" in active_fields and key.tr in hidden_corner:
+                key.tr = ""
+            if "bl" in active_fields and key.bl in hidden_corner:
+                key.bl = ""
+            if "br" in active_fields and key.br in hidden_corner:
+                key.br = ""
+
+
+def _get_field(key: LayoutKey, field: str) -> str:
+    return getattr(key, FIELD_ATTRS[field])
+
+
+def _set_field(key: LayoutKey, field: str, value: str) -> None:
+    setattr(key, FIELD_ATTRS[field], value)
