@@ -173,7 +173,8 @@ def transform_keymap(  # pylint: disable=too-many-locals
         raise TransformError("input keymap does not define any layers")
 
     layer_names = list(all_layers)
-    selected_names = _select_layers(layer_names, include_layers, exclude_layers)
+    selected_names = _select_layers(layer_names, include_layers)
+    layer_renames = _build_layer_rename_map(selected_names, move_layers)
     working_layers = {name: all_layers[name].clone() for name in selected_names}
     source_layers = {name: layer.clone() for name, layer in working_layers.items()}
     output_layers = {name: layer.clone() for name, layer in working_layers.items()}
@@ -188,7 +189,9 @@ def transform_keymap(  # pylint: disable=too-many-locals
         output_layers=output_layers,
         source_layers=source_layers,
         template_layer=template_layer,
+        layer_renames=layer_renames,
     )
+    _validate_exclude_layers(exclude_layers, output_layers)
     output_layers = {
         name: layer
         for name, layer in output_layers.items()
@@ -256,7 +259,6 @@ def _normalize_layers(raw_layers: Mapping[str, object]) -> dict[str, LayerState]
 def _select_layers(
     layer_names: Sequence[str],
     include_layers: Sequence[str] | None,
-    exclude_layers: Sequence[str] | None,
 ) -> list[str]:
     selected = list(layer_names)
     if include_layers is not None:
@@ -265,12 +267,29 @@ def _select_layers(
             raise TransformError(f'unknown layer(s) in --include-layers: {", ".join(unknown)}')
         selected = [name for name in layer_names if name in set(include_layers)]
 
-    if exclude_layers is not None:
-        unknown = [name for name in exclude_layers if name not in layer_names]
-        if unknown:
-            raise TransformError(f'unknown layer(s) in --exclude-layers: {", ".join(unknown)}')
-
     return selected
+
+
+def _build_layer_rename_map(layer_names: Sequence[str], move_layers: Sequence[LayerMoveSpec]) -> dict[str, str]:
+    renames = {name: name for name in layer_names}
+    for spec in move_layers:
+        if spec.target_field is not None:
+            continue
+        for original_name, current_name in list(renames.items()):
+            if current_name == spec.source_layer:
+                renames[original_name] = spec.target_layer
+    return renames
+
+
+def _validate_exclude_layers(
+    exclude_layers: Sequence[str] | None,
+    output_layers: Mapping[str, LayerState],
+) -> None:
+    if exclude_layers is None:
+        return
+    unknown = [name for name in exclude_layers if name not in output_layers]
+    if unknown:
+        raise TransformError(f'unknown layer(s) in --exclude-layers: {", ".join(unknown)}')
 
 
 def _validate_combo_specs(move_combos: Sequence[ComboMoveSpec], source_layers: Mapping[str, LayerState]) -> None:
@@ -380,6 +399,7 @@ def _transform_combos(  # pylint: disable=too-many-locals
     output_layers: dict[str, LayerState],
     source_layers: Mapping[str, LayerState],
     template_layer: LayerState,
+    layer_renames: Mapping[str, str],
 ) -> list[ComboState]:
     if raw_combos is None:
         raw_combos = []
@@ -415,7 +435,7 @@ def _transform_combos(  # pylint: disable=too-many-locals
                 output_layers[spec.target_layer] = template_layer.empty_like()
 
             moved = combo_state.clone()
-            moved.combo.layers = _rewrite_combo_layers(combo, spec, source_layers)
+            moved.combo.layers = _rewrite_combo_layers(combo, spec, source_layers, layer_renames)
             dedup_key = (
                 spec.target_layer,
                 tuple(sorted(moved.combo.key_positions)),
@@ -423,13 +443,22 @@ def _transform_combos(  # pylint: disable=too-many-locals
             )
             if dedup_key in moved_seen:
                 existing = moved_seen[dedup_key]
+                if _combo_metadata_signature(existing.combo) != _combo_metadata_signature(moved.combo):
+                    raise TransformError(
+                        "cannot move combo at positions "
+                        f"{combo.key_positions} to layer {spec.target_layer}: "
+                        "conflicting combo metadata for combos sharing the same positions and key"
+                    )
                 existing.combo.layers = _merge_layer_names(existing.combo.layers, moved.combo.layers)
                 continue
             moved_seen[dedup_key] = moved
             out.append(moved)
             continue
 
-        out.append(combo_state.clone())
+        untouched = combo_state.clone()
+        if untouched.combo.layers:
+            untouched.combo.layers = _rename_layer_names(untouched.combo.layers, layer_renames)
+        out.append(untouched)
 
     return out
 
@@ -446,24 +475,30 @@ def _rewrite_combo_layers(
     combo: ComboSpec,
     spec: ComboMoveSpec,
     source_layers: Mapping[str, LayerState],
+    layer_renames: Mapping[str, str],
 ) -> list[str]:
-    current_layers = list(combo.layers) if combo.layers else list(source_layers)
-    moved_from = set(spec.source_layers or current_layers)
+    original_layers = list(combo.layers) if combo.layers else list(source_layers)
+    current_layers = [layer_renames.get(layer, layer) for layer in original_layers]
+    moved_from = set(spec.source_layers or original_layers)
     rewritten: list[str] = []
     inserted_target = False
 
-    for layer in current_layers:
-        if layer in moved_from:
+    for original_layer, current_layer in zip(original_layers, current_layers):
+        if original_layer in moved_from:
             if not inserted_target:
                 rewritten.append(spec.target_layer)
                 inserted_target = True
             continue
-        rewritten.append(layer)
+        rewritten.append(current_layer)
 
     if not inserted_target:
         rewritten.append(spec.target_layer)
 
     return _merge_layer_names((), rewritten)
+
+
+def _rename_layer_names(layers: Sequence[str], layer_renames: Mapping[str, str]) -> list[str]:
+    return _merge_layer_names((), [layer_renames.get(layer, layer) for layer in layers])
 
 
 def _merge_layer_names(existing: Sequence[str], new_layers: Sequence[str]) -> list[str]:
@@ -494,6 +529,13 @@ def _filter_combos(combos: Sequence[ComboState], output_layers: Mapping[str, Lay
 
 def _combo_key_signature(key: LayoutKey) -> str:
     return json.dumps(key.model_dump(exclude_defaults=True, by_alias=True), sort_keys=True)
+
+
+def _combo_metadata_signature(combo: ComboSpec) -> str:
+    raw = combo.model_dump(exclude_defaults=True, by_alias=True)
+    for field in ("l", "p", "tk", "k"):
+        raw.pop(field, None)
+    return json.dumps(raw, sort_keys=True)
 
 
 def _apply_hidden_legends(

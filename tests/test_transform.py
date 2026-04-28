@@ -73,6 +73,18 @@ class TransformEngineTest(unittest.TestCase):
         self.assertNotIn("Base", transformed["layers"])
         self.assertEqual(transformed["layers"]["Main"][1]["h"], "sticky")
 
+    def test_full_layer_rename_preserves_explicit_combo_memberships(self):
+        keymap = self.keymap()
+        keymap["combos"] = [{"p": [0, 1], "k": "Esc", "l": ["Base"]}]
+
+        transformed = transform_keymap(
+            keymap,
+            transform_config=self.cfg,
+            move_layers=[parse_layer_move_spec("Base", "Main")],
+        )
+
+        self.assertEqual(transformed["combos"][0]["l"], ["Main"])
+
     def test_field_move_creates_target_layer(self):
         transformed = transform_keymap(
             self.keymap(),
@@ -135,6 +147,21 @@ class TransformEngineTest(unittest.TestCase):
         self.assertEqual(list(transformed["layers"]), ["Base", "Nav", "ComboLayer"])
         self.assertEqual(transformed["combos"][0]["l"], ["ComboLayer", "Nav"])
 
+    def test_move_combos_keep_full_layer_renames_for_unmoved_memberships(self):
+        keymap = self.keymap()
+        keymap["combos"] = [{"p": [0, 1], "k": "Esc"}]
+
+        transformed = transform_keymap(
+            keymap,
+            transform_config=self.cfg,
+            move_layers=[parse_layer_move_spec("Base", "Main")],
+            move_combos=[parse_combo_move_spec("Nav", "ComboLayer")],
+            include_layers=["Base", "Nav"],
+        )
+
+        self.assertEqual(list(transformed["layers"]), ["Nav", "Main", "ComboLayer"])
+        self.assertEqual(transformed["combos"][0]["l"], ["Main", "ComboLayer"])
+
     def test_move_layers_resolve_against_current_state(self):
         transformed = transform_keymap(
             self.keymap(),
@@ -164,6 +191,17 @@ class TransformEngineTest(unittest.TestCase):
         self.assertEqual(list(transformed["layers"]), ["Base"])
         self.assertEqual(transformed["combos"], [])
 
+    def test_exclude_layers_can_target_created_or_renamed_layers(self):
+        transformed = transform_keymap(
+            self.keymap(),
+            transform_config=self.cfg,
+            move_layers=[parse_layer_move_spec("Nav", "Helper")],
+            exclude_layers=["Helper"],
+        )
+
+        self.assertNotIn("Helper", transformed["layers"])
+        self.assertNotIn("Nav", transformed["layers"])
+
     def test_hidden_legends_only_apply_to_written_fields(self):
         transformed = transform_keymap(
             self.keymap(),
@@ -190,6 +228,20 @@ class TransformEngineTest(unittest.TestCase):
                     parse_layer_move_spec("Nav", "stacked:tr"),
                     parse_layer_move_spec("Num", "stacked:tr"),
                 ],
+            )
+
+    def test_move_combos_reject_conflicting_metadata_during_dedup(self):
+        keymap = self.keymap()
+        keymap["combos"] = [
+            {"p": [0, 1], "k": "Esc", "l": ["Nav"], "a": "mid"},
+            {"p": [0, 1], "k": "Esc", "l": ["Num"], "a": "top"},
+        ]
+
+        with self.assertRaisesRegex(TransformError, "conflicting combo metadata"):
+            transform_keymap(
+                keymap,
+                transform_config=self.cfg,
+                move_combos=[parse_combo_move_spec("Nav,Num", "ComboLayer")],
             )
 
     def test_config_accepts_legacy_stack_config_alias(self):
