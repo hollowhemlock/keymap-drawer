@@ -4,7 +4,7 @@
 
 draw_config:
   # Corner positioning is influenced by these settings:
-  small_pad: 4.0  # corner_pad = small_pad 
+  small_pad: 4.0  # corner_pad = small_pad
   svg_extra_style: |
     /* Combo styling */
     rect.combo { fill: white; stroke: #888; }
@@ -37,7 +37,7 @@ draw_config:
     use.bl { fill: #16A34A; }
     use.br { fill: #FF9D23; }
 
-    
+
   glyph_tap_size: 14
   glyph_hold_size: 12
   glyph_shifted_size: 10
