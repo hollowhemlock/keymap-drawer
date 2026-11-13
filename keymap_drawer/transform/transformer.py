@@ -119,9 +119,7 @@ def parse_layer_move_spec(source: str, target: str) -> LayerMoveSpec:
     target_layer, target_field = _split_layer_ref(target, allow_field=True)
 
     if source_field is not None and target_field is None:
-        raise TransformError(
-            f'invalid --move-layer {source} {target}: target needs a field when source uses one'
-        )
+        raise TransformError(f"invalid --move-layer {source} {target}: target needs a field when source uses one")
 
     return LayerMoveSpec(
         source_layer=source_layer,
@@ -138,7 +136,7 @@ def parse_combo_move_spec(source_set: str, target: str) -> ComboMoveSpec:
     target_layer, target_field = _split_layer_ref(target, allow_field=True)
     if target_field is not None:
         raise TransformError(
-            f'invalid --move-combos {source_set} {target}: combo targets must be layer names without a field'
+            f"invalid --move-combos {source_set} {target}: combo targets must be layer names without a field"
         )
 
     if source_set == "*":
@@ -192,11 +190,7 @@ def transform_keymap(  # pylint: disable=too-many-locals
         layer_renames=layer_renames,
     )
     _validate_exclude_layers(exclude_layers, output_layers)
-    output_layers = {
-        name: layer
-        for name, layer in output_layers.items()
-        if name not in set(exclude_layers or ())
-    }
+    output_layers = {name: layer for name, layer in output_layers.items() if name not in set(exclude_layers or ())}
     if not output_layers:
         raise TransformError("transform would remove every layer from the output")
     output_combos = _filter_combos(output_combos, output_layers)
@@ -314,10 +308,12 @@ def _apply_layer_moves(
     for spec in move_layers:
         source = output_layers.get(spec.source_layer)
         if source is None:
-            raise TransformError(f'cannot apply --move-layer {spec.raw_flag}: unknown source layer "{spec.source_layer}"')
+            raise TransformError(
+                f'cannot apply --move-layer {spec.raw_flag}: unknown source layer "{spec.source_layer}"'
+            )
         if spec.target_layer == spec.source_layer:
             raise TransformError(
-                f'cannot apply --move-layer {spec.raw_flag}: source and target layer names must differ'
+                f"cannot apply --move-layer {spec.raw_flag}: source and target layer names must differ"
             )
 
         if spec.target_field is None:
@@ -424,8 +420,7 @@ def _transform_combos(  # pylint: disable=too-many-locals
         if len(matching_specs) > 1:
             flags = ", ".join(f"--move-combos {spec.raw_flag}" for spec in matching_specs)
             raise TransformError(
-                "cannot move combo at positions "
-                f"{combo.key_positions}: it matches multiple combo moves ({flags})"
+                "cannot move combo at positions " f"{combo.key_positions}: it matches multiple combo moves ({flags})"
             )
 
         if matching_specs:

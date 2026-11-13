@@ -144,7 +144,9 @@ def _load_keymap_yaml(in_buf) -> dict:
     return data
 
 
-def _merge_transform_config(base: TransformConfig, yaml_data: dict, hidden_corner_legends: list[str] | None = None) -> TransformConfig:
+def _merge_transform_config(
+    base: TransformConfig, yaml_data: dict, hidden_corner_legends: list[str] | None = None
+) -> TransformConfig:
     cfg_data = yaml_data.get("transform_config")
     if cfg_data is None:
         cfg_data = yaml_data.get("stack_config")
@@ -215,8 +217,8 @@ def stack(args: Namespace, config: Config) -> None:  # pylint: disable=too-many-
         sys.exit(2)
 
     print(
-        'Warning: `keymap stack-layers` is deprecated and will be removed in a future release; '
-        'use `keymap transform` instead.',
+        "Warning: `keymap stack-layers` is deprecated and will be removed in a future release; "
+        "use `keymap transform` instead.",
         file=sys.stderr,
     )
 

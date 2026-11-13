@@ -10,7 +10,12 @@ import yaml
 
 from keymap_drawer.config import Config
 from keymap_drawer.transform.config import TransformConfig
-from keymap_drawer.transform.transformer import TransformError, parse_combo_move_spec, parse_layer_move_spec, transform_keymap
+from keymap_drawer.transform.transformer import (
+    TransformError,
+    parse_combo_move_spec,
+    parse_layer_move_spec,
+    transform_keymap,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STACKED_DIR = REPO_ROOT / "examples" / "stacked"
