@@ -416,7 +416,7 @@ def _transform_combos(  # pylint: disable=too-many-locals
     moved_seen: dict[tuple[str, tuple[int, ...], tuple[str, ...], str], ComboState] = {}
     out: list[ComboState] = []
 
-    for combo_state in combos:
+    for combo_state in _filter_combos(combos, source_layers):
         combo = combo_state.combo
         matching_specs = [spec for spec in move_combos if _combo_matches_spec(combo, spec, source_layers)]
         if len(matching_specs) > 1:

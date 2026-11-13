@@ -140,6 +140,27 @@ class TransformEngineTest(unittest.TestCase):
             [dict(combo, l=["Combos"]) for combo in keymap["combos"]],
         )
 
+    def test_wildcard_combo_moves_respect_included_layers(self):
+        keymap = self.keymap()
+        keymap["combos"] = [
+            {"p": [0, 1], "k": "NavOnly", "l": ["Nav"]},
+            {"p": [0, 1], "k": "BaseOnly", "l": ["Base"]},
+            {"p": [0, 1], "k": "Shared", "l": ["Base", "Nav"]},
+            {"p": [0, 1], "k": "Global"},
+        ]
+        transformed = transform_keymap(
+            keymap,
+            transform_config=self.cfg,
+            include_layers=["Base"],
+            move_combos=[parse_combo_move_spec("*", "Combos")],
+        )
+
+        self.assertEqual(list(transformed["layers"]), ["Base", "Combos"])
+        self.assertEqual(
+            transformed["combos"],
+            [{"p": [0, 1], "k": key, "l": ["Combos"]} for key in ("BaseOnly", "Shared", "Global")],
+        )
+
     def test_move_combos_preserves_unmoved_layer_memberships(self):
         keymap = self.keymap()
         keymap["combos"] = [{"p": [0, 1], "k": "Esc", "l": ["Base", "Nav"]}]
