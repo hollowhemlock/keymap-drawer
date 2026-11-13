@@ -68,7 +68,7 @@ def draw(args: Namespace, config: Config) -> None:
     )
 
     if custom_config := yaml_data.get("draw_config"):
-        config.draw_config = DrawConfig.model_validate(config.draw_config.model_dump() | custom_config)
+        config.draw_config = DrawConfig.parse_obj(config.draw_config.model_dump() | custom_config)
 
     drawer = KeymapDrawer(
         config=config,
@@ -142,15 +142,12 @@ def _load_keymap_yaml(in_buf) -> dict:
     return data
 
 
-def _merge_transform_config(base: TransformConfig, yaml_data: dict) -> TransformConfig:
-    cfg_data = yaml_data.get("transform_config")
-    return TransformConfig.model_validate(base.model_dump() | cfg_data) if cfg_data else base
-
-
 def transform(args: Namespace, config: Config) -> None:
     """Transform a keymap YAML into another keymap YAML."""
     yaml_data = _load_keymap_yaml(args.keymap_yaml)
-    transform_config = _merge_transform_config(config.transform_config, yaml_data)
+    transform_config = config.transform_config
+    if custom_config := yaml_data.get("transform_config"):
+        transform_config = TransformConfig.model_validate(transform_config.model_dump() | custom_config)
 
     try:
         move_layers = [parse_layer_move_spec(source, target) for source, target in args.move_layer or []]
@@ -360,7 +357,7 @@ def main() -> None:  # pylint: disable=too-many-statements
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    config = Config.model_validate(yaml.safe_load(args.config)) if args.config else Config()
+    config = Config.parse_obj(yaml.safe_load(args.config)) if args.config else Config()
 
     match args.command:
         case "draw":
