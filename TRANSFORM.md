@@ -46,6 +46,28 @@ Collision policy is intentionally strict:
 
 Error messages include the failing flag payload and the concrete destination, e.g. `Base[12].tr is already set`.
 
+## Combo move behavior
+
+Each combo without `draw_separate` may match at most one `--move-combos` operation. Matching uses its memberships in the selected original layers. A shared combo can match multiple operations even when their source lists do not overlap.
+
+For example, a combo with `l: [Base, Nav]` makes this command fail:
+
+```sh
+keymap transform keymap.yaml \
+  --move-combos Base BaseCombos \
+  --move-combos Nav NavCombos
+```
+
+To move both memberships to one destination, use a single operation:
+
+```sh
+keymap transform keymap.yaml --move-combos Base,Nav Combos
+```
+
+Splitting a shared combo across different destinations is currently unsupported. Global combos (those without explicit layer memberships) can also match multiple source-specific operations. Combos marked `draw_separate` are skipped by combo moves.
+
+Trigger-key references (`tk`) are resolved against the selected original layers before combo memberships are rewritten and are serialized as concrete positions (`p`). This preserves their positions when source legends move or the destination layer is empty.
+
 ## Combo recipes
 
 Move combos onto the stacked layer itself:
