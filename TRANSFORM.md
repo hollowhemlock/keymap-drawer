@@ -8,7 +8,7 @@ The `keymap transform` command restructures a keymap YAML into another keymap YA
 
 This recipe combines multiple layers into a single diagram with corner legends.
 
-![Stacked layers example](site/showcase_stacked.svg)
+![Stacked layers example](examples/transform/stacked.svg)
 
 ```sh
 keymap transform keymap.yaml \

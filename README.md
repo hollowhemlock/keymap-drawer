@@ -170,7 +170,7 @@ keymap transform keymap.yaml \
 Optional combo moves can target either `stacked` or a separate `stacked_combos` layer via `--move-combos`.
 The transformed output can be drawn with `keymap draw` like any other keymap YAML.
 
-![Stacked layers example](site/showcase_stacked.svg)
+![Stacked layers example](examples/transform/stacked.svg)
 
 See [TRANSFORM.md](TRANSFORM.md) for the stacked-layer recipe, generic transform options, combo recipes, configuration, and styling instructions.
 

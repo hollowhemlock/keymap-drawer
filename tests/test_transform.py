@@ -18,7 +18,7 @@ from keymap_drawer.transform.transformer import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-STACKED_DIR = REPO_ROOT / "examples" / "stacked"
+TRANSFORM_DIR = REPO_ROOT / "examples" / "transform"
 
 SAMPLE_KEYMAP = {
     "layout": {"ortho_layout": {"rows": 1, "columns": 2}},
@@ -353,9 +353,9 @@ class TransformCliTest(unittest.TestCase):
                 self.assertIn("<svg", drawn.stdout)
 
     def test_transform_matches_checked_in_example(self):
-        expected = yaml.safe_load((STACKED_DIR / "stacked.yaml").read_text(encoding="utf-8"))
-        config_path = STACKED_DIR / "config.yaml"
-        keymap_path = STACKED_DIR / "ferris_sweep.yaml"
+        expected = yaml.safe_load((TRANSFORM_DIR / "stacked.yaml").read_text(encoding="utf-8"))
+        config_path = TRANSFORM_DIR / "config.yaml"
+        keymap_path = TRANSFORM_DIR / "ferris_sweep.yaml"
 
         transform_proc = subprocess.run(
             [
