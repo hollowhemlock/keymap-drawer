@@ -413,7 +413,7 @@ def _transform_combos(  # pylint: disable=too-many-locals
         )
         for combo_spec in raw_combos
     ]
-    moved_seen: dict[tuple[str, tuple[int, ...], str], ComboState] = {}
+    moved_seen: dict[tuple[str, tuple[int, ...], tuple[str, ...], str], ComboState] = {}
     out: list[ComboState] = []
 
     for combo_state in combos:
@@ -439,6 +439,7 @@ def _transform_combos(  # pylint: disable=too-many-locals
             dedup_key = (
                 spec.target_layer,
                 tuple(sorted(moved.combo.key_positions)),
+                tuple(sorted(_combo_key_signature(key) for key in moved.combo.trigger_keys)),
                 _combo_key_signature(moved.combo.key),
             )
             if dedup_key in moved_seen:

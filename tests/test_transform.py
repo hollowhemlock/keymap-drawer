@@ -121,6 +121,25 @@ class TransformEngineTest(unittest.TestCase):
         self.assertEqual(moved_combo["k"], "Esc")
         self.assertEqual(transformed["combos"][1]["draw_separate"], True)
 
+    def test_move_combos_preserves_distinct_trigger_keys(self):
+        keymap = {
+            "layers": {"Base": ["A", "B", "C", "D"]},
+            "combos": [
+                {"tk": ["A", "B"], "k": "Esc", "l": ["Base"]},
+                {"tk": ["C", "D"], "k": "Esc", "l": ["Base"]},
+            ],
+        }
+        transformed = transform_keymap(
+            keymap,
+            transform_config=self.cfg,
+            move_combos=[parse_combo_move_spec("Base", "Combos")],
+        )
+
+        self.assertEqual(
+            transformed["combos"],
+            [dict(combo, l=["Combos"]) for combo in keymap["combos"]],
+        )
+
     def test_move_combos_preserves_unmoved_layer_memberships(self):
         keymap = self.keymap()
         keymap["combos"] = [{"p": [0, 1], "k": "Esc", "l": ["Base", "Nav"]}]
