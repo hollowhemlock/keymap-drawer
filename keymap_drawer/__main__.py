@@ -163,7 +163,9 @@ def transform(args: Namespace, config: Config) -> None:
             include_layers=args.include_layers,
             exclude_layers=args.exclude_layers,
         )
-        yaml.safe_dump(transformed, args.output, width=160, sort_keys=False, default_flow_style=None, allow_unicode=True)
+        yaml.safe_dump(
+            transformed, args.output, width=160, sort_keys=False, default_flow_style=None, allow_unicode=True
+        )
     except TransformError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(2)

@@ -115,8 +115,8 @@ class ComboState:
 
 def parse_layer_move_spec(source: str, target: str) -> LayerMoveSpec:
     """Parse one `--move-layer SRC[:FIELD] TARGET[:FIELD]` payload."""
-    source_layer, source_field = _split_layer_ref(source, allow_field=True)
-    target_layer, target_field = _split_layer_ref(target, allow_field=True)
+    source_layer, source_field = _split_layer_ref(source)
+    target_layer, target_field = _split_layer_ref(target)
 
     if source_field is not None and target_field is None:
         raise TransformError(f"invalid --move-layer {source} {target}: target needs a field when source uses one")
@@ -133,7 +133,7 @@ def parse_layer_move_spec(source: str, target: str) -> LayerMoveSpec:
 
 def parse_combo_move_spec(source_set: str, target: str) -> ComboMoveSpec:
     """Parse one `--move-combos SOURCE_SET TARGET` payload."""
-    target_layer, target_field = _split_layer_ref(target, allow_field=True)
+    target_layer, target_field = _split_layer_ref(target)
     if target_field is not None:
         raise TransformError(
             f"invalid --move-combos {source_set} {target}: combo targets must be layer names without a field"
@@ -173,13 +173,12 @@ def transform_keymap(  # pylint: disable=too-many-locals
     layer_names = list(all_layers)
     selected_names = _select_layers(layer_names, include_layers)
     layer_renames = _build_layer_rename_map(selected_names, move_layers)
-    working_layers = {name: all_layers[name].clone() for name in selected_names}
-    source_layers = {name: layer.clone() for name, layer in working_layers.items()}
-    output_layers = {name: layer.clone() for name, layer in working_layers.items()}
+    source_layers = {name: all_layers[name] for name in selected_names}
+    output_layers = {name: layer.clone() for name, layer in source_layers.items()}
     template_layer = next(iter(source_layers.values()))
 
     _validate_combo_specs(move_combos, source_layers)
-    touched_fields = _apply_layer_moves(output_layers, move_layers, template_layer)
+    touched_fields = _apply_layer_moves(output_layers, move_layers)
 
     output_combos = _transform_combos(
         keymap.get("combos", []),
@@ -205,13 +204,11 @@ def transform_keymap(  # pylint: disable=too-many-locals
     return result
 
 
-def _split_layer_ref(value: str, *, allow_field: bool) -> tuple[str, str | None]:
+def _split_layer_ref(value: str) -> tuple[str, str | None]:
     if value.count(":") > 1:
         raise TransformError(f'invalid layer reference "{value}": expected at most one ":" separator')
     if ":" not in value:
         return value, None
-    if not allow_field:
-        raise TransformError(f'invalid layer reference "{value}"')
     layer_name, field_name = value.split(":", maxsplit=1)
     if field_name not in FIELD_ATTRS:
         valid = ", ".join(FIELD_ATTRS)
@@ -295,7 +292,6 @@ def _validate_combo_specs(move_combos: Sequence[ComboMoveSpec], source_layers: M
 def _apply_layer_moves(
     output_layers: dict[str, LayerState],
     move_layers: Sequence[LayerMoveSpec],
-    template_layer: LayerState,
 ) -> dict[str, set[str]]:
     seen_target_fields: dict[tuple[str, str], LayerMoveSpec] = {}
     touched_fields: dict[str, set[str]] = {}
@@ -324,7 +320,7 @@ def _apply_layer_moves(
                     f"--move-layer {first_spec.raw_flag}"
                 )
             seen_target_fields[seen_key] = spec
-            _apply_field_move(output_layers, source, spec, template_layer)
+            _apply_field_move(output_layers, source, spec)
             touched_fields.setdefault(spec.target_layer, set()).add(spec.target_field)
 
         output_layers.pop(spec.source_layer, None)
@@ -351,7 +347,6 @@ def _apply_field_move(
     output_layers: dict[str, LayerState],
     source: LayerState,
     spec: LayerMoveSpec,
-    template_layer: LayerState,
 ) -> None:
     source_field = spec.source_field or "t"
     target_field = spec.target_field
@@ -359,8 +354,6 @@ def _apply_field_move(
     target = output_layers.get(spec.target_layer)
     if target is None:
         target = source.empty_like()
-        if len(target.keys) != len(template_layer.keys):
-            target = template_layer.empty_like()
         output_layers[spec.target_layer] = target
 
     if len(target.keys) != len(source.keys):
@@ -404,7 +397,7 @@ def _transform_combos(  # pylint: disable=too-many-locals
         )
         for combo_spec in raw_combos
     ]
-    moved_seen: dict[tuple[str, tuple[int, ...], tuple[str, ...], str], ComboState] = {}
+    moved_seen: dict[tuple[str, tuple[int, ...], str], ComboState] = {}
     out: list[ComboState] = []
 
     for combo_state in _filter_combos(combos, source_layers):
@@ -439,7 +432,6 @@ def _transform_combos(  # pylint: disable=too-many-locals
             dedup_key = (
                 spec.target_layer,
                 tuple(sorted(moved.combo.key_positions)),
-                tuple(sorted(_combo_key_signature(key) for key in moved.combo.trigger_keys)),
                 _combo_key_signature(moved.combo.key),
             )
             if dedup_key in moved_seen:

@@ -67,6 +67,19 @@ class TransformEngineTest(unittest.TestCase):
         """Return a fresh sample keymap."""
         return deepcopy(SAMPLE_KEYMAP)
 
+    def test_transform_does_not_mutate_input(self):
+        keymap = self.keymap()
+        original = deepcopy(keymap)
+        transformed = transform_keymap(
+            keymap,
+            transform_config=self.cfg,
+            move_layers=[parse_layer_move_spec("Base", "Main")],
+            move_combos=[parse_combo_move_spec("Nav,Num", "Combos")],
+        )
+        self.assertEqual(keymap, original)
+        self.assertNotIn("Base", transformed["layers"])
+        self.assertEqual(transformed["combos"][0]["l"], ["Combos"])
+
     def test_full_layer_rename_preserves_layer_data(self):
         transformed = transform_keymap(
             self.keymap(),
