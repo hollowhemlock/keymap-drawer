@@ -150,7 +150,7 @@ And you are done! You can view the output SVG on your browser or use a tool like
 
 ### Transforming keymaps
 
-The **`keymap transform`** command rewrites one keymap YAML into another. This is the generic replacement for `keymap stack-layers`, which remains available as a deprecated compatibility wrapper.
+The **`keymap transform`** command rewrites one keymap YAML into another.
 
 `transform` output is intentionally lossy with respect to comments, formatting, and YAML anchors because the result is reserialized.
 

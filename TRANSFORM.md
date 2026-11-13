@@ -1,6 +1,6 @@
 # Keymap Transformations
 
-The `keymap transform` command restructures a keymap YAML into another keymap YAML. It is the generic replacement for `keymap stack-layers`, which remains available as a deprecated wrapper for compatibility.
+The `keymap transform` command restructures a keymap YAML into another keymap YAML.
 
 `transform` output is intentionally lossy with respect to comments, formatting, and YAML anchors because the result is reserialized.
 
@@ -125,8 +125,6 @@ transform_config:
 | `hidden_held_legends` | `list[str]` | Hold legend values to hide |
 | `hidden_shifted_legends` | `list[str]` | Shifted legend values to hide |
 
-`stack_config` is still accepted as a deprecated alias during the transition.
-
 ## CSS styling
 
 Corner legends use CSS classes `tl`, `tr`, `bl`, `br` for styling. Add to `draw_config.svg_extra_style`:
@@ -144,18 +142,5 @@ use.br { fill: #FF9D23; }
 ```
 
 Layer activator keys can still be styled with custom `type` values such as `layer-tl` or `layer-br`, exactly as before.
-
-## Deprecated wrapper
-
-`keymap stack-layers` still works for one release and internally maps to:
-
-```sh
-keymap transform \
-  --move-layer CENTER stacked \
-  --move-layer TL stacked:tl \
-  --move-layer TR stacked:tr \
-  --move-layer BL stacked:bl \
-  --move-layer BR stacked:br
-```
 
 See [`examples/transform/`](examples/transform/) for a complete working example.

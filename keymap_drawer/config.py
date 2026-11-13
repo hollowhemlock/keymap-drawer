@@ -6,7 +6,7 @@ keycode converters for parsing.
 from textwrap import dedent
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
 from keymap_drawer.transform.config import TransformConfig
@@ -500,5 +500,4 @@ class Config(BaseSettings, env_prefix="KEYMAP_"):
     parse_config: ParseConfig = ParseConfig()
     transform_config: TransformConfig = Field(
         default_factory=TransformConfig,
-        validation_alias=AliasChoices("transform_config", "stack_config"),
     )

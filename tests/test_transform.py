@@ -303,13 +303,13 @@ class TransformEngineTest(unittest.TestCase):
                 move_combos=[parse_combo_move_spec("Nav,Num", "ComboLayer")],
             )
 
-    def test_config_accepts_legacy_stack_config_alias(self):
-        cfg = Config.model_validate({"stack_config": {"hidden_corner_legends": ["Nav"]}})
+    def test_config_accepts_transform_config(self):
+        cfg = Config.model_validate({"transform_config": {"hidden_corner_legends": ["Nav"]}})
         self.assertEqual(cfg.transform_config.hidden_corner_legends, ["Nav"])
 
 
 class TransformCliTest(unittest.TestCase):
-    """CLI-level compatibility checks."""
+    """CLI-level transform checks."""
 
     def test_trigger_key_combos_render_after_transform(self):
         keymap = {
@@ -352,28 +352,7 @@ class TransformCliTest(unittest.TestCase):
                 )
                 self.assertIn("<svg", drawn.stdout)
 
-    def test_stack_wrapper_list_layers_does_not_require_center(self):
-        keymap_path = STACKED_DIR / "ferris_sweep.yaml"
-
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "keymap_drawer",
-                "stack-layers",
-                str(keymap_path),
-                "--list-layers",
-            ],
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        self.assertIn("Available layers:", proc.stdout)
-        self.assertIn("colemak_dh", proc.stdout)
-
-    def test_transform_and_stack_wrapper_match_checked_in_example(self):
+    def test_transform_matches_checked_in_example(self):
         expected = yaml.safe_load((STACKED_DIR / "stacked.yaml").read_text(encoding="utf-8"))
         config_path = STACKED_DIR / "config.yaml"
         keymap_path = STACKED_DIR / "ferris_sweep.yaml"
@@ -417,40 +396,7 @@ class TransformCliTest(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        wrapper_proc = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "keymap_drawer",
-                "-c",
-                str(config_path),
-                "stack-layers",
-                "--center",
-                "colemak_dh",
-                "--tl",
-                "fun",
-                "--tr",
-                "sys",
-                "--bl",
-                "num",
-                "--br",
-                "nav",
-                str(keymap_path),
-                "--include-combos",
-                "colemak_dh",
-                "nav",
-                "num",
-                "--separate-combo-layer",
-            ],
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
         self.assertEqual(yaml.safe_load(transform_proc.stdout), expected)
-        self.assertEqual(yaml.safe_load(wrapper_proc.stdout), expected)
-        self.assertIn("deprecated", wrapper_proc.stderr)
 
 
 if __name__ == "__main__":

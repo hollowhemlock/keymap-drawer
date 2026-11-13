@@ -202,11 +202,6 @@ def transform_keymap(  # pylint: disable=too-many-locals
     if output_combos or "combos" in keymap:
         result["combos"] = [combo.dump() for combo in output_combos]
 
-    legacy_cfg = result.pop("stack_config", None)
-    inline_cfg = result.get("transform_config")
-    if inline_cfg is None and legacy_cfg is not None:
-        result["transform_config"] = legacy_cfg
-
     return result
 
 

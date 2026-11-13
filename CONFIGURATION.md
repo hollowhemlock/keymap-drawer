@@ -416,8 +416,6 @@ _Default:_ `[]`
 
 These settings are nested under the `transform_config` field and apply to the `keymap transform` subcommand.
 This field can also be set in the keymap YAML which overrides the global configuration.
-`stack_config` is still accepted as a deprecated alias during the transition.
-
 #### `hidden_corner_legends`
 
 Values to hide in corner positions (e.g., modifier symbols like "sticky" or glyphs like `$$mdi:pause$$`).

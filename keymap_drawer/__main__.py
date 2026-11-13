@@ -19,8 +19,6 @@ from keymap_drawer.keymap import KeymapData
 from keymap_drawer.parse import KanataKeymapParser, QmkJsonParser, ZmkKeymapParser
 from keymap_drawer.transform.config import TransformConfig
 from keymap_drawer.transform.transformer import (
-    ComboMoveSpec,
-    LayerMoveSpec,
     TransformError,
     parse_combo_move_spec,
     parse_layer_move_spec,
@@ -144,40 +142,9 @@ def _load_keymap_yaml(in_buf) -> dict:
     return data
 
 
-def _merge_transform_config(
-    base: TransformConfig, yaml_data: dict, hidden_corner_legends: list[str] | None = None
-) -> TransformConfig:
+def _merge_transform_config(base: TransformConfig, yaml_data: dict) -> TransformConfig:
     cfg_data = yaml_data.get("transform_config")
-    if cfg_data is None:
-        cfg_data = yaml_data.get("stack_config")
-
-    merged = base
-    if cfg_data:
-        merged = TransformConfig.model_validate(base.model_dump() | cfg_data)
-    if hidden_corner_legends:
-        merged = TransformConfig.model_validate(merged.model_dump() | {"hidden_corner_legends": hidden_corner_legends})
-    return merged
-
-
-def _run_transform(
-    *,
-    yaml_data: dict,
-    output,
-    transform_config: TransformConfig,
-    move_layers: list[LayerMoveSpec],
-    move_combos: list[ComboMoveSpec],
-    include_layers: list[str] | None,
-    exclude_layers: list[str] | None,
-) -> None:
-    transformed = transform_keymap(
-        yaml_data,
-        transform_config=transform_config,
-        move_layers=move_layers,
-        move_combos=move_combos,
-        include_layers=include_layers,
-        exclude_layers=exclude_layers,
-    )
-    yaml.safe_dump(transformed, output, width=160, sort_keys=False, default_flow_style=None, allow_unicode=True)
+    return TransformConfig.model_validate(base.model_dump() | cfg_data) if cfg_data else base
 
 
 def transform(args: Namespace, config: Config) -> None:
@@ -188,76 +155,15 @@ def transform(args: Namespace, config: Config) -> None:
     try:
         move_layers = [parse_layer_move_spec(source, target) for source, target in args.move_layer or []]
         move_combos = [parse_combo_move_spec(source_set, target) for source_set, target in args.move_combos or []]
-        _run_transform(
-            yaml_data=yaml_data,
-            output=args.output,
+        transformed = transform_keymap(
+            yaml_data,
             transform_config=transform_config,
             move_layers=move_layers,
             move_combos=move_combos,
             include_layers=args.include_layers,
             exclude_layers=args.exclude_layers,
         )
-    except TransformError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(2)
-
-
-def stack(args: Namespace, config: Config) -> None:  # pylint: disable=too-many-locals
-    """Legacy wrapper for the deprecated `stack-layers` command."""
-    yaml_data = _load_keymap_yaml(args.keymap_yaml)
-    if args.list_layers:
-        layers = yaml_data.get("layers", {})
-        print("Available layers:")
-        for name in layers.keys():
-            print(f"  - {name}")
-        return
-
-    if not args.center:
-        print("Error: --center is required unless --list-layers is used", file=sys.stderr)
-        sys.exit(2)
-
-    print(
-        "Warning: `keymap stack-layers` is deprecated and will be removed in a future release; "
-        "use `keymap transform` instead.",
-        file=sys.stderr,
-    )
-
-    transform_config = _merge_transform_config(
-        config.transform_config,
-        yaml_data,
-        hidden_corner_legends=args.hidden_corner_legends,
-    )
-
-    move_layers = [parse_layer_move_spec(args.center, "stacked")]
-    for layer_name, target_field in (
-        (args.tl, "tl"),
-        (args.tr, "tr"),
-        (args.bl, "bl"),
-        (args.br, "br"),
-    ):
-        if layer_name:
-            move_layers.append(parse_layer_move_spec(layer_name, f"stacked:{target_field}"))
-
-    move_sources = {spec.source_layer for spec in move_layers}
-    combo_sources = args.include_combos or []
-    include_layers = list(dict.fromkeys([*move_sources, *combo_sources]))
-    exclude_layers = [layer for layer in combo_sources if layer not in move_sources] or None
-
-    move_combos: list[ComboMoveSpec] = []
-    if combo_sources:
-        target_layer = "stacked_combos" if args.separate_combo_layer else "stacked"
-        move_combos.append(parse_combo_move_spec(",".join(combo_sources), target_layer))
-
-    try:
-        _run_transform(
-            yaml_data=yaml_data,
-            output=args.output,
-            transform_config=transform_config,
-            move_layers=move_layers,
-            move_combos=move_combos,
-            include_layers=include_layers,
-            exclude_layers=exclude_layers,
-        )
+        yaml.safe_dump(transformed, args.output, width=160, sort_keys=False, default_flow_style=None, allow_unicode=True)
     except TransformError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(2)
@@ -436,52 +342,6 @@ def main() -> None:  # pylint: disable=too-many-statements
         default=sys.stdout,
     )
 
-    stack_p = subparsers.add_parser(
-        "stack-layers",
-        help="deprecated: stack multiple layers into a single multi-position legend layer",
-    )
-    stack_p.add_argument(
-        "keymap_yaml",
-        help="YAML file containing keymap with layers to stack",
-        type=FileType("rt", encoding="utf-8"),
-    )
-    stack_p.add_argument(
-        "--center",
-        help="Layer name for center position (primary layer)",
-    )
-    stack_p.add_argument("--tl", help="Layer name for top-left corner")
-    stack_p.add_argument("--tr", help="Layer name for top-right corner")
-    stack_p.add_argument("--bl", help="Layer name for bottom-left corner")
-    stack_p.add_argument("--br", help="Layer name for bottom-right corner")
-    stack_p.add_argument(
-        "--hidden-corner-legends",
-        nargs="+",
-        help="Values to hide in corner positions (e.g., modifier symbols)",
-    )
-    stack_p.add_argument(
-        "--include-combos",
-        nargs="+",
-        metavar="LAYER",
-        help="Include combos from specified layers, remapped to 'stacked'",
-    )
-    stack_p.add_argument(
-        "--separate-combo-layer",
-        action="store_true",
-        help="Add a 'stacked_combos' layer for separate combo diagram",
-    )
-    stack_p.add_argument(
-        "--list-layers",
-        action="store_true",
-        help="List available layers and exit",
-    )
-    stack_p.add_argument(
-        "-o",
-        "--output",
-        help="Output to path instead of stdout",
-        type=FileType("wt", encoding="utf-8"),
-        default=sys.stdout,
-    )
-
     dump_p = subparsers.add_parser(
         "dump-config", help="dump default draw and parse config to stdout that can be passed to -c/--config option"
     )
@@ -507,8 +367,6 @@ def main() -> None:  # pylint: disable=too-many-statements
             parse(args, config)
         case "transform":
             transform(args, config)
-        case "stack-layers":
-            stack(args, config)
         case "dump-config":
             dump_config(args, config)
 
