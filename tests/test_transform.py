@@ -161,6 +161,20 @@ class TransformEngineTest(unittest.TestCase):
             [{"p": [0, 1], "k": key, "l": ["Combos"]} for key in ("BaseOnly", "Shared", "Global")],
         )
 
+    def test_separate_combos_skip_overlapping_moves(self):
+        keymap = self.keymap()
+        combo = {"p": [0, 1], "k": "Esc", "l": ["Base", "Nav"], "draw_separate": True}
+        keymap["combos"] = [combo]
+        moves = [parse_combo_move_spec("Base", "BaseCombos"), parse_combo_move_spec("Nav", "NavCombos")]
+        transformed = transform_keymap(keymap, transform_config=self.cfg, move_combos=moves)
+
+        self.assertEqual(transformed["combos"], [combo])
+        self.assertEqual(transformed["layers"], keymap["layers"])
+
+        combo.pop("draw_separate")
+        with self.assertRaisesRegex(TransformError, "matches multiple combo moves"):
+            transform_keymap(keymap, transform_config=self.cfg, move_combos=moves)
+
     def test_move_combos_preserves_unmoved_layer_memberships(self):
         keymap = self.keymap()
         keymap["combos"] = [{"p": [0, 1], "k": "Esc", "l": ["Base", "Nav"]}]

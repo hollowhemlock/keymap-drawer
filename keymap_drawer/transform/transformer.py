@@ -418,16 +418,15 @@ def _transform_combos(  # pylint: disable=too-many-locals
 
     for combo_state in _filter_combos(combos, source_layers):
         combo = combo_state.combo
-        matching_specs = [spec for spec in move_combos if _combo_matches_spec(combo, spec, source_layers)]
+        matching_specs = [
+            spec for spec in move_combos if not combo.draw_separate and _combo_matches_spec(combo, spec, source_layers)
+        ]
         if len(matching_specs) > 1:
             flags = ", ".join(f"--move-combos {spec.raw_flag}" for spec in matching_specs)
             raise TransformError(
                 "cannot move combo at positions "
                 f"{combo.key_positions}: it matches multiple combo moves ({flags})"
             )
-
-        if matching_specs and combo.draw_separate:
-            matching_specs = []
 
         if matching_specs:
             spec = matching_specs[0]
