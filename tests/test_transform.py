@@ -142,7 +142,7 @@ class TransformEngineTest(unittest.TestCase):
 
         self.assertEqual(
             transformed["combos"],
-            [dict(combo, l=["Combos"]) for combo in keymap["combos"]],
+            [{"p": positions, "k": "Esc", "l": ["Combos"]} for positions in ([0, 1], [2, 3])],
         )
 
     def test_wildcard_combo_moves_respect_included_layers(self):
@@ -310,6 +310,47 @@ class TransformEngineTest(unittest.TestCase):
 
 class TransformCliTest(unittest.TestCase):
     """CLI-level compatibility checks."""
+
+    def test_trigger_key_combos_render_after_transform(self):
+        keymap = {
+            "layout": {"ortho_layout": {"rows": 1, "columns": 4}},
+            "layers": {"Base": [{"t": "A", "h": "Ctrl"}, "B", "C", "D"]},
+            "combos": [
+                {"tk": ["A", "B"], "k": "Esc", "l": ["Base"]},
+                {"tk": ["C", "D"], "k": "Esc", "l": ["Base"]},
+            ],
+        }
+        for moves in ([], ["--move-layer", "Base", "Overlay:tr"]):
+            with self.subTest(moves=moves):
+                transformed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "keymap_drawer",
+                        "transform",
+                        "-",
+                        *moves,
+                        "--move-combos",
+                        "Base",
+                        "Combos",
+                    ],
+                    input=yaml.safe_dump(keymap),
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                self.assertEqual(
+                    yaml.safe_load(transformed.stdout)["combos"],
+                    [{"p": positions, "k": "Esc", "l": ["Combos"]} for positions in ([0, 1], [2, 3])],
+                )
+                drawn = subprocess.run(
+                    [sys.executable, "-m", "keymap_drawer", "draw", "-"],
+                    input=transformed.stdout,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                self.assertIn("<svg", drawn.stdout)
 
     def test_stack_wrapper_list_layers_does_not_require_center(self):
         keymap_path = STACKED_DIR / "ferris_sweep.yaml"

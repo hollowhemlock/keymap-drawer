@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from keymap_drawer.keymap import ComboSpec, LayoutKey
+from keymap_drawer.keymap import ComboSpec, KeymapData, LayoutKey
 
 from .config import TransformConfig
 
@@ -414,6 +414,17 @@ def _transform_combos(  # pylint: disable=too-many-locals
 
     for combo_state in _filter_combos(combos, source_layers):
         combo = combo_state.combo
+        if combo.trigger_keys:
+            try:
+                KeymapData(
+                    layers={name: layer.keys for name, layer in source_layers.items()},
+                    combos=[combo],
+                    layout=None,
+                )
+            except ValueError as exc:
+                raise TransformError(f"cannot resolve combo trigger keys: {exc}") from exc
+            # Serialize only positions so drawing does not re-resolve legends on moved layers.
+            combo.trigger_keys = []
         matching_specs = [
             spec for spec in move_combos if not combo.draw_separate and _combo_matches_spec(combo, spec, source_layers)
         ]
